@@ -11,9 +11,8 @@
 module.exports = (robot) ->
   robot.respond /(info|sdsinfo) (.+)$/i, (msg) ->
     query = msg.match[2]
-    robot.http("https://docs.google.com/spreadsheet/pub")
+    robot.http("https://docs.google.com/spreadsheets/d/1lD7wCg-vwr8TrlYg9v9FJwF7N99eS-fXTTD3Xa7J4oM/pub")
       .query({
-        key: "0AoxM45kt4KbidG52TjdndTlORDl5czNVdlJEUVVTaGc"
         output: "csv"
         alt: 'json'
         q: query
