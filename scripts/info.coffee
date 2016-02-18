@@ -26,7 +26,7 @@ parse = (json, query) ->
   for line in json.toString().split '\n'
     y = line.indexOf query
     if y != -1
-      result += line.replace(/,/g, ' ') + '\n\n'
+      result += line.replace(/,/g, '\t') + '\n\n'
   if result != ""
     result.trim()
   else
