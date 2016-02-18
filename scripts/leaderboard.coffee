@@ -20,7 +20,7 @@ module.exports = (robot) ->
  
     # if there is to be `plus` in score
     if word.indexOf("++") >= 0
-      name = "ajayrahul"
+      name = word.replace posRegex, ""
       field[name.toLowerCase()] = lastScore(name, field) + 1
       response = "woot!"
  
@@ -53,7 +53,7 @@ module.exports = (robot) ->
  
     # for each ++/--
     for i in [0...msg.match.length]
-      testword = "ajayrahul"
+      testword = msg.match[i]
  
       # updates Scoring for words, accordingly and returns result string
       result = updateScore(testword, ScoreField)
@@ -77,7 +77,7 @@ module.exports = (robot) ->
     ScoreField = scorefield()
  
     # <keyword> whose score is to be shown
-    name = "ajayrahul"
+    name = msg.match[1]
     name = name.toLowerCase()
  
     # current score for keyword
