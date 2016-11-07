@@ -10,24 +10,26 @@
 https = require('follow-redirects').https
 cron = require('node-cron')
 
-url = "https://script.google.com/macros/s/AKfycbyORsjXLiVK4wC4VwaAUMFZ28pE7IYOf5Sx_Tmbk1S9YvXhbsU/exec"
-
 module.exports = (robot) ->
 
-#This will run every Sunday at 9 pm 
-  cron.schedule '0 0 21 * * Sunday', ()->
-    https.get url+"?type=3", (res) -> 
-      res.on 'data', (body) ->
-        robot.send room: 'general', "Added new week to Mdg Mirror"
-      # res.on 'end', () ->
+  if (url = process.env.MIRROR_SCRIPT_URL)
+    
+    #This will run every Sunday at 9 pm 
+    cron.schedule '0 0 21 * * Sunday', ()->
+      https.get url+"?type=3", (res) -> 
+        res.on 'data', (body) ->
+          robot.send room: 'general', "Added new week to Mdg Mirror"
 
-#This will run every Tuesday and Friday at 6 am
-  cron.schedule '0 0 6 * * Tuesday,Friday', ()->
-    https.get url+"?type=2", (res) -> 
-      res.on 'data', (body) ->
-        namesArray = JSON.parse body
-        namesArray = namesArray.map (el)->
-          return '@'+el
-        names = namesArray.join " "
-        robot.send room: 'general', names+"\nPlease fill up the activities sheet."
+    #This will run every Tuesday and Friday at 6 am
+    cron.schedule '0 0 6 * * Tuesday,Friday', ()->
+      https.get url+"?type=2", (res) -> 
+        res.on 'data', (body) ->
+          namesArray = JSON.parse body
+          namesArray = namesArray.map (el)->
+            return '@'+el
+          names = namesArray.join " "
+          robot.send room: 'general', names+"\nPlease fill up the activities sheet."
+
+  else
+    console.log "MIRROR_SCRIPT_URL not found in environment variables"
  
