@@ -25,8 +25,9 @@ module.exports = (robot) ->
       https.get url+"?type=2", (res) -> 
         res.on 'data', (body) ->
           namesArray = JSON.parse body
-          namesArray = namesArray.map (el)->
-            return '@'+el
+          unless namesArray.length
+            return
+          namesArray = namesArray.map (el) -> return '@'+el
           names = namesArray.join " "
           robot.send room: 'general', names+"\nPlease fill up the activities sheet."
 
