@@ -1,5 +1,5 @@
 # Description:
-# Checks if there are no messages for a fixed time and sends random responses.
+# Checks if there are no messages for a fixed time and send random responses.
 # 
 # Dependencies:
 #   None
@@ -13,6 +13,10 @@
 # Author:
 #   csoni111
 
+set_time = process.env.IDLE_TIME_DURATION_HOURS or "0"
+set_time = parseFloat set_time
+i=0
+msec_per_hour = 1000*60*60
 last_msg_time = null
 idle_msgs = [
   'Why so silent?',
@@ -20,14 +24,17 @@ idle_msgs = [
   'Looks like I am all alone!',
 ]
 
-cron = require('node-cron')
+if set_time > 0
+	module.exports = (robot) ->
+		robot.hear /.+/i, (msg) ->
+			last_msg_time = new Date()
+			if i
+				clearInterval i
+			i=setInterval () ->
+				checkAndSendMsg()
+			, msec_per_hour*set_time
 
-if (IDLE_TIME_DURATION_HOURS = process.env.IDLE_TIME_DURATION_HOURS)
-    cron.schedule '0 0 */'+IDLE_TIME_DURATION_HOURS+' * * *', ()->
-    	elapsed_hour = ((new Date()).getTime() - last_msg_time.getTime())/(1000*60*60)
-    	if elapsed_time < IDLE_TIME_DURATION_HOURS
-          robot.send room: 'general', idle_msgs[Math.floor(idle_msgs.length*Math.random)]
-
-module.exports = (robot) ->
-	robot.hear /.+/i, (msg) ->
-		last_msg_time = new Date()
+		checkAndSendMsg = ->
+			idle_time_hour = ((new Date()).getTime() - last_msg_time.getTime())/msec_per_hour
+			if idle_time_hour > set_time
+    			robot.send room: 'general', idle_msgs[Math.floor idle_msgs.length*Math.random()]
