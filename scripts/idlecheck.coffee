@@ -24,8 +24,8 @@ idle_msgs = [
   'Looks like I am all alone!',
 ]
 
-if set_time > 0
-	module.exports = (robot) ->
+module.exports = (robot) ->
+	if set_time > 0
 		robot.hear /.+/i, (msg) ->
 			last_msg_time = new Date()
 			if i
@@ -34,7 +34,7 @@ if set_time > 0
 				checkAndSendMsg()
 			, msec_per_hour*set_time
 
-		checkAndSendMsg = ->
-			idle_time_hour = ((new Date()).getTime() - last_msg_time.getTime())/msec_per_hour
-			if idle_time_hour > set_time
-    			robot.send room: 'general', idle_msgs[Math.floor idle_msgs.length*Math.random()]
+	checkAndSendMsg = ->
+		idle_time_hour = ((new Date()).getTime() - last_msg_time.getTime())/msec_per_hour
+		if idle_time_hour > set_time
+    		robot.send room: 'general', idle_msgs[Math.floor idle_msgs.length*Math.random()]

@@ -1,3 +1,10 @@
+# Description:
+#   Script for maininting scores of different users.
+#
+# Commands:
+#   name++ or name-- : Adds/subtracts 1 point to/from user's score
+#   hubot score name : Shows current score of the user
+
 module.exports = (robot) ->
  
   # return object to store data for all keywords
