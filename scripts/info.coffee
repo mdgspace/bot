@@ -28,11 +28,11 @@ module.exports = (robot) ->
               "pretext": user[0]
               "title": user[0]
               "title_link": "https://facebook.com/"+user[9]
-              "text": "Github id: _"+user[8]+"_"+
-              "\nFb: _<https://facebook.com/"+user[9]+"|"+user[9]+">_"+
-              "\nRoom no: _"+user[7]+"_"+
-              "\nDesg: _"+user[4]+" "+user[5]+" ("+user[6]+")_"+
-              "\nDOB: _"+user[3]+"_"
+              "text": "*Github id:* "+user[8]+
+              "\n*Fb:* <https://facebook.com/"+user[9]+"|"+user[9]+">"+
+              "\n*Room no:* "+user[7]+
+              "\n*Desg:* "+user[4]+" "+user[5]+" ("+user[6]+")"+
+              "\n*DOB:* "+user[3]
               "fields": [
                   "title": "Mobile"
                   "value": "<tel:"+user[1]+"|"+user[1]+">"
