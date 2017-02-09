@@ -24,11 +24,15 @@ module.exports = (robot) ->
           for user in result
             output = 
               "fallback": user.join ' \t '
-              "color": "#66464f"
-              "pretext": "Info for "+query.toString()
+              "color": randomColor()
+              "pretext": user[0]
               "title": user[0]
               "title_link": "https://facebook.com/"+user[9]
-              "text": "Github ID: "+user[8]+"\nRoom No: "+user[7]
+              "text": "Github id: _"+user[8]+"_"+
+              "\nFb: _<https://facebook.com/"+user[9]+"|"+user[9]+">_"+
+              "\nRoom no: _"+user[7]+"_"+
+              "\nDesg: _"+user[4]+" "+user[5]+" ("+user[6]+")_"+
+              "\nDOB: _"+user[3]+"_"
               "fields": [
                   "title": "Mobile"
                   "value": "<tel:"+user[1]+"|"+user[1]+">"
@@ -41,7 +45,7 @@ module.exports = (robot) ->
               ]
               "footer": user[4]+" "+user[5]+" ("+user[6]+")"
               "ts": new Date(user[3]).getTime()
-            
+
             sendMessage output, msg
 
 
@@ -61,5 +65,8 @@ parse = (json, query) ->
     result
   else
     false
+
+randomColor = () ->
+  return '#'+(0x1000000+(Math.random())*0xffffff).toString(16).substr(1,6);
 
 
