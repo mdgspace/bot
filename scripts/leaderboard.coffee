@@ -21,21 +21,29 @@ module.exports = (robot) ->
     lastscore
  
   # updates score according to ++/--
-  updateScore = (word, field) ->
+  updateScore = (word, field, username) ->
     posRegex = /\+\+/
     negRegex = /\-\-/
- 
+    
+    
+
     # if there is to be `plus` in score
     if word.indexOf("++") >= 0
       name = word.replace posRegex, ""
-      field[name.toLowerCase()] = lastScore(name, field) + 1
-      response = "woot!"
+      if username.toLowerCase() == name.toLowerCase()
+        response = "-1"
+      else
+        field[name.toLowerCase()] = lastScore(name, field) + 1
+        response = "woot!"
  
     # if there is to be `minus` in score
     else if word.indexOf("--") >= 0
       name = word.replace negRegex, ""
-      field[name.toLowerCase()] = lastScore(name, field) - 1
-      response = "ouch!"
+      if username.toLowerCase() == name.toLowerCase()
+        response = "-1"
+      else
+        field[name.toLowerCase()] = lastScore(name, field) - 1
+        response = "ouch!"
  
     newscore = field[name.toLowerCase()]
  
@@ -63,13 +71,16 @@ module.exports = (robot) ->
       testword = msg.match[i]
  
       # updates Scoring for words, accordingly and returns result string
-      result = updateScore(testword, ScoreField)
- 
+      result = updateScore(testword, ScoreField, msg.message.user.name)
+      
+
       end = start + testword.length
  
       # generates response message for reply
-      newmsg = "#{testword} [#{result.Response} #{result.Name} now at
- #{result.New}] "
+      if result.Response == "-1"
+        newmsg = "#{testword} [Sorry, You can't give ++ or -- to yourself.]"
+      else
+        newmsg = "#{testword} [#{result.Response} #{result.Name} now at #{result.New}] "
       oldmsg = oldmsg.substr(0, start) + newmsg + oldmsg.substr(end+1)
       start += newmsg.length
  
