@@ -25,10 +25,13 @@ module.exports = (robot) ->
       pre = '/api/users.info?token='
       post = '&user='
       url = pre+token+post+uid
+      output = ''
       req = https.get { host: 'slack.com', path: url }, (res) ->
         res.on 'data', (chunk) ->
+          output += chunk
+        res.on 'end', () ->
           parsedUsers++
-          data = JSON.parse('' + chunk)
+          data = JSON.parse('' + output)
           if data.ok
             user = robot.brain.userForId data.user.id
             if user.name isnt data.user.name
@@ -37,5 +40,5 @@ module.exports = (robot) ->
           if parsedUsers==totalUsers
             robot.send room: currentRoom, "Updated names for #{updatedUsers} out of #{totalUsers} users"
           
-  else
-    console.log "No slack Api token found"
+  # else
+    # console.log "No slack Api token found"
