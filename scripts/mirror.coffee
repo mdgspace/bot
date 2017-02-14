@@ -9,6 +9,7 @@
 
 https = require('follow-redirects').https
 cron = require('node-cron')
+output = ''
 
 module.exports = (robot) ->
 
@@ -18,19 +19,24 @@ module.exports = (robot) ->
     cron.schedule '0 0 21 * * Sunday', ()->
       https.get url+"?type=3", (res) -> 
         res.on 'data', (body) ->
-          robot.send room: 'general', "Added new week to Mdg Mirror"
+          output+=''
+        res.on 'end', () ->
+          robot.send room: 'general', "Added new week to Mdg Mirror. (#{output})"
 
     #This will run every Tuesday and Friday at 6 am
     cron.schedule '0 0 6 * * Tuesday,Friday', ()->
       https.get url+"?type=2", (res) -> 
-        res.on 'data', (body) ->
-          namesArray = JSON.parse body
-          unless namesArray.length
-            return
-          namesArray = namesArray.map (el) -> return '@'+el
-          names = namesArray.join " "
-          robot.send room: 'general', names+"\nPlease fill up the activities sheet."
+      res.on 'data', (body) ->
+        output += body
+      res.on 'end', () ->
+        namesArray = JSON.parse output
+        unless namesArray.length
+          return
+        namesArray = namesArray.map (el) -> return '@'+el
+        names = namesArray.join " "
+        robot.send room: 'general', names+"\nPlease fill up the activities sheet."
+        output = ''
 
-  else
-    console.log "MIRROR_SCRIPT_URL not found in environment variables"
+  # else
+    # console.log "MIRROR_SCRIPT_URL not found in environment variables"
  

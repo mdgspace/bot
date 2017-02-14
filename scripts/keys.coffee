@@ -63,20 +63,13 @@ module.exports = (robot)->
 				msg.send "How am I supposed to take those keys? #{name} is a liar!"
 			else
 				users = robot.brain.usersForFuzzyName othername
-				if users is null
-					msg.send "I don't know anyone by the name #{othername}"
+				if users.length is 1
+					robot.brain.set "key", users[0].name
+					msg.send "Okay, so now the keys are with #{users[0].name}"
+				else if users.length > 1
+					msg.send getAmbiguousUserText users
 				else
-					names = []
-					for k of users
-						names.push users[k]['name']
-					if names.length is 1
-						robot.brain.set "key", names[0]
-						msg.send "Okay, so now the keys are with #{names[0]}"
-					else
-						all_names = names.join ', '
-						all_names = all_names.replace /,([^,]*)$/,' or '+'$1'
-						msg.send "Did you mean #{all_names}?"
-
+					msg.send "#{othername}? Never heard of 'em"
 
 	robot.respond /(i|I) (have given|gave|had given) (the key|key|keys|a key|the keys) to (.+)/i , (msg)->
 		othername = msg.match[4]
@@ -104,5 +97,8 @@ module.exports = (robot)->
 		else
 			msgText+=" has keys"
 			msg.send msgText	
-		robot.brain.set("key" ,k)	
+		robot.brain.set("key" ,k)
+
+getAmbiguousUserText = (users) ->
+    "Be more specific, I know #{users.length} people named like that: #{(user.name for user in users).join(", ")}"
 
