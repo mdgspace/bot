@@ -23,20 +23,37 @@ module.exports = (robot) ->
     if msg.match[0].toLowerCase().startsWith robot.name.toLowerCase()
       return
     words = tokenizer.tokenize msg.match[0]
-    otherWords = ['is', 'an', 'the', 'and', 'or', 'a', 'me']
+    pronouns = ['i', 'he', 'she', 'it',  'we', 
+                'me', 'mine', 'his', 'her', 'something', 
+                'they', 'their', 'our', 'those', 
+                'this', 'that', 'these', 'anything', 
+                'anybody', 'anyone', 'everyone', 
+                'each', 'either', 'everybody', 'none', 
+                'everything', 'neither', 'nobody', 
+                'nothing', 'one', 'somebody', 'someone']
+
+    conjunctions = ['and', 'yet', 'but', 'for', 'so', 'or', 'nor']
+    
+    otherWords = ['a', 'at', 'in', 'for', 'is', 'am', 'are']
+    
     words = words.filter (val) ->
-      val not in otherWords
+      val.toLowerCase() not in otherWords.concat(pronouns, conjunctions)
     if words.length > 0
       name = msg.message.user.name 
       user = robot.brain.userForName name
       if typeof user is 'object'
         user.words = user.words or {}
+        if Object.keys(user.words).length > 25
+          removalCount=i=0
+          while removalCount is 0
+            i++
+            for word, spokenCount of user.words
+              if spokenCount <= i
+                delete user.words[word]
+                removalCount++
         for word in words
           user.words[word] = ++user.words[word] or 1
-        if Object.keys(user.words).length > 25
-          for word in Object.keys user.words
-            if user.words[word] < 2
-              delete user.words[word]
+
 
   robot.respond /.*show.*words.*/i, (msg) ->
     name = msg.message.user.name 
@@ -44,11 +61,11 @@ module.exports = (robot) ->
     if typeof user is 'object'
       sorted = []
       user.words = user.words or {}
-      for word in Object.keys user.words
-        sorted.push [word, user.words[word]]
+      for word, spokenCount of user.words
+        sorted.push [word, spokenCount]
+      if sorted.length
         sorted.sort (a, b) ->
           b[1] - a[1]
-      if sorted.length
         sorted = sorted.map (val) -> "#{val[0]}(#{val[1]})"
         msg.send sorted.join ', '
       else
