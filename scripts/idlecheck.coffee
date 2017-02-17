@@ -13,8 +13,7 @@
 # Author:
 #   csoni111
 
-set_time = process.env.IDLE_TIME_DURATION_HOURS or "0"
-set_time = parseFloat set_time
+set_time = parseFloat process.env.IDLE_TIME_DURATION_HOURS or "0"
 i=0
 msec_per_hour = 1000*60*60
 last_msg_time = null
@@ -37,4 +36,5 @@ module.exports = (robot) ->
 	checkAndSendMsg = ->
 		idle_time_hour = ((new Date()).getTime() - last_msg_time.getTime())/msec_per_hour
 		if idle_time_hour > set_time
-    		robot.send room: 'general', idle_msgs[Math.floor idle_msgs.length*Math.random()]
+			randomMsg = idle_msgs[Math.floor idle_msgs.length*Math.random()]
+			robot.emit 'send:quote', randomMsg

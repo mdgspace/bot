@@ -27,7 +27,8 @@
     "hubot-scripts": ">= 2.5.0 < 3.0.0",
     "hubot-slack": "~2.2.0",
     "natural": "^0.5.0",
-    "node-cron": "^1.1.2"
+    "node-cron": "^1.1.2",
+    "soupselect": "^0.2.0"
   },
   "engines": {
     "node": ">= 0.8.x",
