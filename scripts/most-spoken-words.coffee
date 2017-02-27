@@ -41,6 +41,7 @@ module.exports = (robot) ->
     if words.length > 0
       name = msg.message.user.name 
       user = robot.brain.userForName name
+      user.msgcount = user.msgcount+1
       if typeof user is 'object'
         user.words = user.words or {}
         if Object.keys(user.words).length > 25
@@ -70,6 +71,15 @@ module.exports = (robot) ->
         msg.send sorted.join ', '
       else
         msg.send msg.random responses
+
+
+  robot.respond /.*stats/i, (msg) ->
+    name = msg.message.user.name 
+    user = robot.brain.userForName name
+    response = "*Name : Message Count*\n"
+    for own key, user of robot.brain.data.users
+      response += "#{user.name} : #{user.msgcount}\n"
+    msg.send response
 
 
 responses = [
