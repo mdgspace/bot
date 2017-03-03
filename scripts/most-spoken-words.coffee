@@ -1,7 +1,8 @@
 # Description:
-#   Listen all the words spoken by a user.
+# Listen all the words spoken by a user.
 # Builds a dictionary of words along with the number of times it was spoken.
 # Display the words spoken by a particular user in desc order.
+# Show message stats
 #
 # Dependencies:
 #   natural - https://www.npmjs.com/package/natural
@@ -11,6 +12,7 @@
 #
 # Commands:
 #   bot show me words spoken by me
+#   bot stats
 #
 # Author:
 #   csoni111
@@ -76,10 +78,11 @@ module.exports = (robot) ->
   robot.respond /.*stats/i, (msg) ->
     name = msg.message.user.name 
     user = robot.brain.userForName name
-    response = "*Name : Message Count*\n"
+    response = "```*Name : Message Count*\n"
     for own key, user of robot.brain.data.users
-      response += "#{user.name} : #{user.msgcount}\n"
-    msg.send response
+      if user.msgcount>0
+        response += "#{user.name} : " + (user.msgcount or 0) + "\n"
+    msg.send response+"```"+"\nCan't find your name?\n" + msg.random responses
 
 
 responses = [
