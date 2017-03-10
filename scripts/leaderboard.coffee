@@ -24,8 +24,6 @@ module.exports = (robot) ->
   updateScore = (word, field, username) ->
     posRegex = /\+\+/
     negRegex = /\-\-/
-    
-    
 
     # if there is to be `plus` in score
     if word.indexOf("++") >= 0
@@ -103,3 +101,9 @@ module.exports = (robot) ->
     currentscore = ScoreField[name]
  
     msg.send "#{name} : #{currentscore}"
+
+  robot.on 'plusplus', (event) ->
+    ScoreField = scorefield()
+    result = updateScore("#{event.username}++", ScoreField, "Shell")
+    newmsg = "#{event.username}++ [#{result.Response} #{result.Name} now at #{result.New}]"
+    robot.send room: 'general', newmsg
