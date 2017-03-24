@@ -12,12 +12,12 @@
 module.exports = (robot)->
 	status = ''
 
-	robot.respond /lab is (open|closed|close)/i, (msg)->
+	robot.hear /lab is (open|closed|close)/i, (msg)->
 		status = msg.match[1]
 		msg.send "Okay lab is #{status}"
 
 
-	robot.respond /(is|was) (lab|labs) (open|close|closed)/i , (msg)->
+	robot.hear /(is|was) (lab|labs) (open|close|closed)/i , (msg)->
 		if status.length > 0
 			msg.send "lab is #{status}" 	
 		else

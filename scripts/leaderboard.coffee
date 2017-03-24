@@ -13,13 +13,38 @@ module.exports = (robot) ->
     Field = robot.brain.get("scorefield") or {}
     robot.brain.set("scorefield",Field)
     Field
- 
+  
+  detailedfield= () ->
+    Field = robot.brain.get("detailedfield") or {}
+    robot.brain.set("detailedfield",Field)
+    Field
   # returns last score
   lastScore = (name, field) ->
     name = name.toLowerCase()
     lastscore = field[name] or 0
     lastscore
  
+  #returns appreciation field associated to a single user
+  userFieldMinus = (user) ->
+    Detailedfield= detailedfield()
+    Detailedfield[user] = Detailedfield[user] or {}
+    Detailedfield[user]["minus"] = Detailedfield[user]["minus"] or {}
+    Detailedfield[user]["minus"]
+
+  #returns depreciation field associated to a single user
+  userFieldPlus = (user) ->
+    Detailedfield= detailedfield()
+    Detailedfield[user] = Detailedfield[user] or {}
+    Detailedfield[user]["plus"] = Detailedfield[user]["plus"] or {}
+    Detailedfield[user]["plus"]
+
+  #updates detailed field
+  updateDetailedScore = (field , sendername , fieldtype)->
+    if(fieldtype == "plus")
+      field[sendername]=field[sendername]+1 or 1
+    else
+      field[sendername]=field[sendername]+1 or 1
+
   # updates score according to ++/--
   updateScore = (word, field, username) ->
     posRegex = /\+\+/
@@ -32,7 +57,9 @@ module.exports = (robot) ->
         response = "-1"
       else
         field[name.toLowerCase()] = lastScore(name, field) + 1
-        response = "woot!"
+        userfield= userFieldPlus(name.toLowerCase())
+        updateDetailedScore(userfield,username,"plus")
+        response= responses[Math.floor(Math.random() * 7)]
  
     # if there is to be `minus` in score
     else if word.indexOf("--") >= 0
@@ -41,7 +68,9 @@ module.exports = (robot) ->
         response = "-1"
       else
         field[name.toLowerCase()] = lastScore(name, field) - 1
-        response = "ouch!"
+        userfield= userFieldMinus(name.toLowerCase())
+        updateDetailedScore(userfield,username,"minus")
+        response= "ouch!"
  
     newscore = field[name.toLowerCase()]
  
@@ -107,3 +136,12 @@ module.exports = (robot) ->
     result = updateScore("#{event.username}++", ScoreField, "Shell")
     newmsg = "#{event.username}++ [#{result.Response} #{result.Name} now at #{result.New}]"
     robot.send room: 'general', newmsg
+responses = [
+  'flamboyant!'
+  'baroque!'
+  'impressive!'
+  'lustrous!'
+  'splashy!'
+  'superb!'
+  'splendid!'
+]
