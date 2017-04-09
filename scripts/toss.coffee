@@ -7,7 +7,8 @@
 # hubot roll n dices
 
 module.exports = (robot) ->
-  toss = ['Head', 'Tail']
+  toss = [':head:\nHeads', ':tail:\nTails']
+  dice = [':one:', ':two:', ':three:', ':four:', ':five:', ':six:']
   robot.respond /toss$/i, (msg) ->
     msg.send msg.random toss
 
@@ -17,6 +18,6 @@ module.exports = (robot) ->
     if msg.match[1]
       i=parseInt msg.match[1].trim()
     while i>0
-      numbers.push Math.ceil Math.random()*6
+      numbers.push dice[Math.floor Math.random()*6]
       i--
-    msg.send numbers.join ', '
+    msg.send numbers.join ' '
