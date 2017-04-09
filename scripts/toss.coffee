@@ -11,7 +11,7 @@ module.exports = (robot) ->
   robot.respond /toss$/i, (msg) ->
     msg.send msg.random toss
 
-  robot.respond /roll( \d{3})? dices?$/i, (msg) ->
+  robot.respond /roll( \d{1,3})?( a)? dices?$/i, (msg) ->
     i=1
     numbers = []
     if msg.match[1]
@@ -19,4 +19,4 @@ module.exports = (robot) ->
     while i>0
       numbers.push Math.ceil Math.random()*6
       i--
-    msg.send numbers.join ', ' 
+    msg.send numbers.join ', '
