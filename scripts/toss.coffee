@@ -12,7 +12,7 @@ module.exports = (robot) ->
   robot.respond /toss$/i, (msg) ->
     msg.send msg.random toss
 
-  robot.respond /roll( \d{1,6})?( a)? dices?$/i, (msg) ->
+  robot.respond /roll( \d)?( a)? dices?$/i, (msg) ->
     i=1
     numbers = []
     if msg.match[1]
