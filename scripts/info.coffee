@@ -8,6 +8,8 @@
 # Commands:
 #   hubot info <partial name> - Get information about a person
 
+moment = require 'moment'
+
 module.exports = (robot) ->
   robot.respond /(info|sdsinfo) (.+)$/i, (msg)  ->
     query = msg.match[2].toLowerCase()
@@ -22,38 +24,32 @@ module.exports = (robot) ->
         else
           msg.send result.length+" user(s) found matching `"+query.toString()+"`"
           for user in result
-            output = 
-              "fallback": user.join ' \t '
-              "color": randomColor()
-              "pretext": user[0]
-              "title": user[0]
-              "title_link": "https://facebook.com/"+user[9]
-              "text": "Github: "+user[8]+
-              "\nFb: <https://facebook.com/"+user[9]+"|"+user[9]+">"+
-              "\nRoom no: "+user[7]+
-              "\nDesg: "+user[4]+" "+user[5]+" ("+user[6]+")"+
-              "\nDOB: "+user[3]
-              "fields": [
-                  "title": "Mobile"
-                  "value": "<tel:"+user[1]+"|"+user[1]+">"
-                  "short": true
-                ,
-                  "title": "Email"
-                  "value": "<mailto:"+user[2]+"|"+user[2]+">"
-                  "short": true
-                ,
+            msg.send(
+              attachments: [
+                {
+                  "fallback": user.join ' \t '
+                  "color": randomColor()
+                  "title": user[0]
+                  "title_link": "https://facebook.com/#{user[9]}"
+                  "text": "Github: <https://github.com/#{user[8]}|#{user[8]}>"+
+                  "\nRoom no: #{user[7]}"
+                  "fields": [
+                      "title": "Mobile"
+                      "value": "<tel:#{user[1]}|#{user[1]}>"
+                      "short": true
+                    ,
+                      "title": "Email"
+                      "value": "<mailto:#{user[2]}|#{user[2]}>"
+                      "short": true
+                    ,
+                  ]
+                  "footer": "#{user[4]} #{user[5]} (#{user[6]})"
+                  "ts": moment(user[3], 'DD/MM/YYYY').format("X")
+                }
+
               ]
-              "footer": user[4]+" "+user[5]+" ("+user[6]+")"
-              "ts": new Date(user[3]).getTime()
+            )
 
-            sendMessage output, msg
-
-
-  sendMessage = (content, msg) ->
-    payload = 
-      message: msg.message
-      content: content
-    robot.emit 'slack-attachment', payload
 
 parse = (json, query) ->
   result = []

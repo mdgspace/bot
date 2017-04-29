@@ -22,7 +22,7 @@ module.exports = (robot) ->
 
     robot.on 'send:fb-feed', (page_name) ->
         getRandomPost page_name, (data) ->
-            sendMessage data, 'general'
+            robot.send room: 'general', attachments: [data]
 
     robot.respond /fb feed (.+)$/i, (msg)  ->
         if access_token.includes 'undefined'
@@ -30,14 +30,11 @@ module.exports = (robot) ->
         else
             page_name = msg.match[1].trim()
             getRandomPost page_name, (data) ->
-                sendMessage data, msg.message.room
-
-    sendMessage = (content, channel) ->
-        payload = 
-            message: {'room': channel}
-            content: content
-        robot.emit 'slack-attachment', payload
-
+                msg.send(
+                    attachments: [
+                        data
+                    ]
+                )
 
 
 #returns a random post from a given fb page    
@@ -53,8 +50,6 @@ getRandomPost = (page_name, callback) ->
             fetchPageDetails page_name, (page) ->
                 output = 
                     "fallback": post.message
-                    "text": ""
-                    "pretext": post.message
                     "color": "#fc554d"
                     "author_name": page.name
                     "author_link": page.link
