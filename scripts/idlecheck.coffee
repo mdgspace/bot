@@ -1,14 +1,14 @@
 # Description:
-# Checks if there are no messages for a fixed time and send random responses.
+# Checks if there are no messages for a fixed time and sends random posts from ToDJ.
 # 
 # Dependencies:
 #   None
 #
 # Configuration:
-#   set IDLE_TIME_DURATION_HOURS as environment variable
+#   IDLE_TIME_DURATION_HOURS
 #
 # Commands:
-#   
+#   None
 #
 # Author:
 #   csoni111
@@ -24,17 +24,16 @@ idle_msgs = [
 ]
 
 module.exports = (robot) ->
-	if set_time > 0
-		robot.hear /.+/i, (msg) ->
-			last_msg_time = new Date()
-			if i
-				clearInterval i
-			i=setInterval () ->
-				checkAndSendMsg()
-			, msec_per_hour*set_time
+    if set_time > 0
+        robot.hear /.+/i, (msg) ->
+            last_msg_time = new Date()
+            if i
+                clearInterval i
+            i=setInterval () ->
+                checkAndSendMsg()
+            , msec_per_hour*set_time
 
-	checkAndSendMsg = ->
-		idle_time_hour = ((new Date()).getTime() - last_msg_time.getTime())/msec_per_hour
-		if idle_time_hour > set_time
-			randomMsg = idle_msgs[Math.floor idle_msgs.length*Math.random()]
-			robot.emit 'send:quote', randomMsg
+    checkAndSendMsg = ->
+        idle_time_hour = ((new Date()).getTime() - last_msg_time.getTime())/msec_per_hour
+        if idle_time_hour > set_time
+            robot.emit 'send:fb-feed', 'dardanaak'
