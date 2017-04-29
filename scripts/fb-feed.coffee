@@ -58,7 +58,7 @@ getRandomPost = (page_name, callback) ->
                     "ts": new Date(post.created_time).getTime() / 1000
                 fetchPostAttachments post.id, (likes, image_url) ->
                     output.footer = "#{likes} Likes"
-                    if image_url isnt null
+                    if image_url?
                         output.image_url = image_url
                     callback(output)
 
@@ -84,7 +84,6 @@ fetchPostAttachments = (post_id, callback) ->
         res.on 'end', () ->
             post_data = JSON.parse(post_data)
             likes = post_data.likes.summary.total_count
-            image_url = null
-            if post_data.attachments isnt undefined
+            if post_data.attachments?
                 image_url = post_data.attachments.data[0].media.image.src
             callback likes, image_url

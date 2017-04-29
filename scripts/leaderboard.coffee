@@ -6,6 +6,26 @@
 #   hubot score name : Shows current score of the user
 
 module.exports = (robot) ->
+
+  robot.listenerMiddleware (context, next, done) ->
+    
+    try
+      # Check if it was called in a room.
+      if get_channel(context.response) is '#DM'
+        context.response.reply "This won't work here"
+        robot.send room: 'general', "@#{context.response.message.user.name} pls dont DM me. Talk here in public!"
+        # Bypass executing the listener callback
+        done()
+      else
+        next (done)
+    catch err
+      robot.emit('error', err, context.response)
+
+  get_channel = (response) ->
+    if response.message.room == response.message.user.name
+      "@#{response.message.room}"
+    else
+      "##{robot.adapter.client.rtm.dataStore.getChannelGroupOrDMById(response.message.room).name}"
  
   # return object to store data for all keywords
   # using this, stores the data in brain's "scorefield" key
