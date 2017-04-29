@@ -14,7 +14,6 @@
 #   csoni111
 
 https = require 'https'
-
 access_token = "access_token=#{process.env.FB_APP_ACCESS_TOKEN}"
 options = {host: 'graph.facebook.com'}
 
@@ -59,7 +58,7 @@ getRandomPost = (page_name, callback) ->
                     "ts": new Date(post.created_time).getTime() / 1000
                 fetchPostAttachments post.id, (likes, image_url) ->
                     output.footer = "#{likes} Likes"
-                    if image_url is not null
+                    if image_url isnt null
                         output.image_url = image_url
                     callback(output)
 
@@ -86,6 +85,6 @@ fetchPostAttachments = (post_id, callback) ->
             post_data = JSON.parse(post_data)
             likes = post_data.likes.summary.total_count
             image_url = null
-            if 'attachments' in post_data
+            if post_data.attachments isnt undefined
                 image_url = post_data.attachments.data[0].media.image.src
             callback likes, image_url
