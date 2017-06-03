@@ -73,7 +73,7 @@ module.exports = (robot) ->
     # if there is to be `plus` in score
     if word.indexOf("++") >= 0
       name = word.replace posRegex, ""
-      if username.toLowerCase() == name.toLowerCase()
+      if username.toLowerCase() == name.toLowerCase() or name.toLowerCase() == "c"
         response = "-1"
       else
         field[name.toLowerCase()] = lastScore(name, field) + 1
