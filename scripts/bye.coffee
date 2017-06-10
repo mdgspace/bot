@@ -48,5 +48,5 @@ ways_to_say_good_night = [
 ]
 
 module.exports = (robot) ->
-  robot.hear /(good night|goodnight|cya|bye|nighty night)/i, (msg) ->
+  robot.hear /(good night|goodnight|cya|bye|nighty night|gn)/i, (msg) ->
     msg.send msg.random ways_to_say_good_night
