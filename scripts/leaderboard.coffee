@@ -69,7 +69,8 @@ module.exports = (robot) ->
   updateScore = (word, field, username) ->
     posRegex = /\+\+/
     negRegex = /\-\-/
-    names = Object.keys(robot.brain.data.users)
+    users = robot.brain.data.users
+    names = Object.keys(users).map (key) => users[key].name
 
     # if there is to be `plus` in score
     if word.indexOf("++") >= 0
