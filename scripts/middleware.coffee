@@ -7,22 +7,26 @@
 # Author:
 #   csoni111
 
+end = (msg, done) ->
+  # Don't process this message further.
+  msg.finish()
+  # Don't process further middleware.
+  done()
+
 module.exports = (robot) ->
-	BLACKLISTED_USERS = [
-  	# Restrict access for a user ID
-	]
-
-	robot.receiveMiddleware (context, next, done) ->
-  		if context.response.message.user.id in BLACKLISTED_USERS
-    		# Don't process this message further.
-    		context.response.message.finish()
-
-    		# If the message starts with 'hubot' or the alias pattern, this user was
-    		# explicitly trying to run a command, so respond with an error message.
-    		if context.response.message.text?.match(robot.respondPattern(''))
-      			context.response.reply "I'm sorry @#{context.response.message.user.name}, but I'm configured to ignore your commands."
-    			
-    		# Don't process further middleware.
-    		done()
-  		else
-    		next(done)
+  robot.receiveMiddleware (context, next, done) ->
+    msg = context.response.message
+    # Check if message was sent by someone other than SlackBot
+    if msg.user.id != 'USLACKBOT'
+       # Check if this message was sent in a private channel
+      if msg.message?.channel.is_private or msg.rawMessage?.channel.is_private
+        robot.send room: 'general', "@#{msg.user.name} stop sending me messages in private channel. Talk here in public!"
+        end(msg, done)
+      # or a DM
+      else if msg.rawMessage?.channel.is_im
+        robot.send room: 'general', "@#{msg.user.name} pls dont DM me. Talk here in public!"
+        end(msg, done)
+      else
+        next(done)
+    else
+      end(msg, done)
