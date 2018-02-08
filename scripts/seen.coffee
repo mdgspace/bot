@@ -50,7 +50,6 @@ class Seen
     @cache[clean user] =
       chan: channel
       date: new Date() - 0
-      msg: msg
     @save()
 
   last: (user) ->
@@ -80,12 +79,12 @@ module.exports = (robot) ->
       last = seen.last nick
       if last.date
         date_string = if config.use_timeago
-          timeago = require 'timeago'
+          timeago = require 'node-time-ago'
           timeago(new Date(last.date))
         else
           "at #{new Date(last.date)}"
 
-        msg.send "#{nick} was last seen #{date_string}" + (if last.msg then (", saying '#{last.msg}'") else "") + " in #{last.chan}"
+        msg.send "#{nick} was last seen #{date_string} in ##{last.chan}"
 
       else
         msg.send "I haven't seen #{nick} around lately"
