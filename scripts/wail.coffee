@@ -22,6 +22,6 @@ module.exports = (robot) ->
             "color": "#36a64f"
             "pretext": "Here's a pic:"
             "image_url": waliUrl
-            "ts": new Date().getTime()
+            "ts": new Date().getTime() / 1000
         ]
       )
