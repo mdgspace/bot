@@ -5,7 +5,7 @@
 #   None
 #
 # Configuration:
-#   WAIL_PIC_URL
+#   WAIL_PIC_URL, WAIL_NAME_URL
 #
 # Commands:
 #   hubot who all in lab
@@ -15,17 +15,18 @@
 
 module.exports = (robot) ->
   robot.respond /who.*lab/i, (msg) ->
-    waliUrl = process.env.WAIL_PIC_URL + '?t=' + new Date().getTime()
+    wailUrl = process.env.WAIL_PIC_URL + '?t=' + new Date().getTime()
     wailTextUrl = process.env.WAIL_NAME_URL + '?t=' + new Date().getTime()
-    request = require 'request'
     resp = ""
-    request.get {uri:'#{wailTextUrl}'}, (err, r, body) ->
+    robot.http('#{wailTextUrl}')
+    .get() (err,response,body) ->
       resp = body
-    msg.send("attachments": [
-        "fallback": "Here's a pic: #{waliUrl}"
-        "color": "#36a64f"
-        "pretext": "#{resp} \n Here's a pic:"
-        "image_url": waliUrl
-        "ts": new Date().getTime() / 1000
-        ]
-    )
+      error = err
+      msg.send("attachments": [
+          "fallback": "#{error} \n Here's a pic: #{wailUrl}"
+          "color": "#36a64f"
+          "pretext": "#{resp} \n Here's a pic:"
+          "image_url": wailUrl
+          "ts": new Date().getTime() / 1000
+          ]
+      )
