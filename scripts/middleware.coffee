@@ -19,11 +19,11 @@ module.exports = (robot) ->
     # Check if message was sent by someone other than SlackBot
     if msg.user.id != 'USLACKBOT'
        # Check if this message was sent in a private channel
-      if msg.message?.channel.is_private or msg.rawMessage?.channel.is_private
+      if msg.message?.channel?.is_private or msg.rawMessage?.channel?.is_private
         robot.send room: 'general', "@#{msg.user.name} stop sending me messages in private channel. Talk here in public!"
         end(msg, done)
       # or a DM
-      else if msg.rawMessage?.channel.is_im
+      else if msg.rawMessage?.channel?.is_im
         robot.send room: 'general', "@#{msg.user.name} pls dont DM me. Talk here in public!"
         end(msg, done)
       else
