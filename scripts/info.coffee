@@ -1,5 +1,5 @@
 # Description:
-#   gets sdslabs member's info from google doc
+#   gets MDG member's info from google doc
 #   Type a partial name to get all matches
 #
 # Configuration:
@@ -11,7 +11,7 @@
 moment = require 'moment'
 
 module.exports = (robot) ->
-  robot.respond /(info|sdsinfo) (.+)$/i, (msg)  ->
+  robot.respond /(info) (.+)$/i, (msg)  ->
     query = msg.match[2].toLowerCase()
     robot.http(process.env.INFO_SPREADSHEET_URL)
       .query({
