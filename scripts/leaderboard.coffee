@@ -69,11 +69,15 @@ module.exports = (robot) ->
   updateScore = (word, field, username) ->
     posRegex = /\+\+/
     negRegex = /\-\-/
+    users = robot.brain.data.users
+    names = Object.keys(users).map (key) => users[key].name
 
     # if there is to be `plus` in score
     if word.indexOf("++") >= 0
       name = word.replace posRegex, ""
-      if username.toLowerCase() == name.toLowerCase()
+      unless username.toLowerCase() in names
+        response = "-2"
+      else if username.toLowerCase() == name.toLowerCase()
         response = "-1"
       else
         field[name.toLowerCase()] = lastScore(name, field) + 1
@@ -84,7 +88,9 @@ module.exports = (robot) ->
     # if there is to be `minus` in score
     else if word.indexOf("--") >= 0
       name = word.replace negRegex, ""
-      if username.toLowerCase() == name.toLowerCase()
+      unless username.toLowerCase() in names
+        response = "-2"
+      else if username.toLowerCase() == name.toLowerCase()
         response = "-1"
       else
         field[name.toLowerCase()] = lastScore(name, field) - 1
@@ -112,6 +118,7 @@ module.exports = (robot) ->
     # index keeping an eye on position, where next replace will be
     start = 0
     end = 0
+    shouldSend = true
  
     # for each ++/--
     for i in [0...msg.match.length]
@@ -124,15 +131,22 @@ module.exports = (robot) ->
       end = start + testword.length
  
       # generates response message for reply
-      if result.Response == "-1"
+      if result.Response == "-2"
+        if result.Name.toLowerCase() isnt "c"
+          newmsg = "#{testword} [Sorry, I don't know anything about #{result.Name}.]"
+        else
+          shouldSend = false # Do not reply if c++ is encountered
+      else if result.Response == "-1"
         newmsg = "#{testword} [Sorry, You can't give ++ or -- to yourself.]"
       else
         newmsg = "#{testword} [#{result.Response} #{result.Name} now at #{result.New}] "
-      oldmsg = oldmsg.substr(0, start) + newmsg + oldmsg.substr(end+1)
-      start += newmsg.length
+      if result.Name.toLowerCase() isnt "c"
+      	oldmsg = oldmsg.substr(0, start) + newmsg + oldmsg.substr(end+1)
+      	start += newmsg.length
  
     # reply with updated message
-    msg.send "#{oldmsg}"
+    if shouldSend
+      msg.send "#{oldmsg}"
  
  
   # response for score status of any <keyword>
