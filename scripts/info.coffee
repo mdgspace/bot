@@ -13,7 +13,8 @@ moment = require 'moment'
 module.exports = (robot) ->
   robot.respond /(info) (.+)$/i, (msg)  ->
     query = msg.match[2].toLowerCase()
-    robot.http(process.env.INFO_SPREADSHEET_URL)
+    if query.length > 3
+      robot.http(process.env.INFO_SPREADSHEET_URL)
       .query({
         output: "csv"
       })
@@ -49,6 +50,8 @@ module.exports = (robot) ->
 
               ]
             )
+    else
+      msg.send "I am not a spam bot! \n Please type atleast 4 letters"
 
 
 parse = (json, query) ->
