@@ -138,6 +138,11 @@ module.exports = (robot) ->
   # response for score status of any <keyword>
   robot.respond /score ([\w\-_]+)/i, (msg) ->
 
+    # we do not want to reply in case of batch score is requested
+    bxx = /b\d\d/i
+    if bxx.exec(msg.match[0]) != null
+    then return
+
     # data-store object
     ScoreField = scorefield()
 
