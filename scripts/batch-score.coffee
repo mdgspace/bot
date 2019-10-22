@@ -12,9 +12,9 @@
 
 module.exports = (robot) ->
 
-  scorefield = () ->
-    Field = robot.brain.get("scorefield") or {}
-    robot.brain.set("scorefield", Field)
+  newScorefield = () ->
+    Field = robot.brain.get("newScorefield") or {}
+    robot.brain.set("newScorefield", Field)
     Field
 
   stringLength = (str) ->
@@ -63,7 +63,7 @@ module.exports = (robot) ->
 
   robot.respond /score b(\d\d)/i, (msg) ->
 
-    ScoreField = scorefield()
+    newScorefield = newScorefield()
 
     # obtaining the current date to calculate relative_year
     today = new Date
@@ -101,7 +101,7 @@ module.exports = (robot) ->
         user_score = []
 
         for i in [1..slackId.length - 1]
-          user_score[i] = ScoreField[slackId[i]] or 0
+          user_score[i] = newScorefield[slackId[i]] or 0
 
         user_name = padright user_name
         user_score = padleft user_score

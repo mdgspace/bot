@@ -28,15 +28,15 @@ module.exports = (robot) ->
       "##{robot.adapter.client.rtm.dataStore.getChannelGroupOrDMById(response.message.room).name}"
 
   # return object to store data for all keywords
-  # using this, stores the data in brain's "scorefield" key
-  scorefield = () ->
-    Field = robot.brain.get("scorefield") or {}
-    robot.brain.set("scorefield",Field)
+  # using this, stores the data in brain's "updatedScorefield" key
+  updatedScorefield = () ->
+    Field = robot.brain.get("updatedScorefield") or {}
+    robot.brain.set("updatedScorefield",Field)
     Field
 
-  detailedfield= () ->
-    Field = robot.brain.get("detailedfield") or {}
-    robot.brain.set("detailedfield",Field)
+  updatedDetailedfield= () ->
+    Field = robot.brain.get("updatedDetailedfield") or {}
+    robot.brain.set("updatedDetailedfield",Field)
     Field
   # returns last score
   lastScore = (name, field) ->
@@ -46,14 +46,14 @@ module.exports = (robot) ->
 
   #returns appreciation field associated to a single user
   userFieldMinus = (user) ->
-    Detailedfield= detailedfield()
+    Detailedfield= updatedDetailedfield()
     Detailedfield[user] = Detailedfield[user] or {}
     Detailedfield[user]["minus"] = Detailedfield[user]["minus"] or {}
     Detailedfield[user]["minus"]
 
   #returns depreciation field associated to a single user
   userFieldPlus = (user) ->
-    Detailedfield= detailedfield()
+    Detailedfield= updatedDetailedfield()
     Detailedfield[user] = Detailedfield[user] or {}
     Detailedfield[user]["plus"] = Detailedfield[user]["plus"] or {}
     Detailedfield[user]["plus"]
@@ -107,7 +107,7 @@ module.exports = (robot) ->
     oldmsg = msg.message.text
 
     # data-store object
-    ScoreField = scorefield()
+    ScoreField = updatedScorefield()
 
     # index keeping an eye on position, where next replace will be
     start = 0
@@ -144,7 +144,7 @@ module.exports = (robot) ->
     then return
 
     # data-store object
-    ScoreField = scorefield()
+    ScoreField = updatedScorefield()
 
     # <keyword> whose score is to be shown
     name = msg.match[1]
@@ -157,7 +157,7 @@ module.exports = (robot) ->
     msg.send "#{name} : #{currentscore}"
 
   robot.on 'plusplus', (event) ->
-    ScoreField = scorefield()
+    ScoreField = updatedScorefield()
     result = updateScore("#{event.username}++", ScoreField, "Shell")
     newmsg = "#{event.username}++ [#{result.Response} #{result.Name} now at #{result.New}]"
     robot.send room: 'general', newmsg
