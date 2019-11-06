@@ -40,3 +40,7 @@ module.exports = (robot) ->
   robot.router.get "/hubot/ip", (req, res) ->
     robot.http('http://ifconfig.me/ip').get() (err, r, body) ->
       res.end body
+
+  robot.router.post "/hubot/slack", (req, res) ->
+    message = req.body.queryResult.parameters.message
+    robot.send room: 'general', "Message through google assistant: #{message}"
