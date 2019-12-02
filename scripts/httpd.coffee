@@ -50,14 +50,14 @@ module.exports = (robot) ->
       if data.queryResult.parameters.person == ""
         console.log(data.queryResult.parameters.message)
       else
-        query = data.queryResult.parameters.person
+        query = data.queryResult.parameters.person.name.toLowerCase()
         robot.http(process.env.INFO_SPREADSHEET_URL)
         .query({
           output: "csv"
         })
         .get() (err, res, body) ->
           result = parse body, query
-          if not result
+          if result.length == 0
             responseobj =     {
               "fulfillmentText": "This is a text response",
               "fulfillmentMessages": [
@@ -97,7 +97,7 @@ module.exports = (robot) ->
                         },
                         {
                                   "basicCard":{
-                                      "formattedText":"Github : "+user[]+"\n  \nMobile : "+user[]+"\n  \nEmail : "+user[]+"\n  \nYear : "+user[]+"\n  \nBranch : "+user[]+"\n  \nEnrollment no : "+user[]+"\n  \nDOB : "+user[],
+                                      "formattedText":"Github : "+user[8]+"\n  \nMobile : "+user[1]+"\n  \nEmail : "+user[2]+"\n  \nYear : "+user[4]+"\n  \nBranch : "+user[5]+"\n  \nEnrollment no : "+user[6]+"\n  \nDOB : "+user[3],
                                       "title":user[0]
                                   }
                               }
@@ -106,10 +106,10 @@ module.exports = (robot) ->
                   },
                 }
               }
-        console.log(responseobj)
-        response.writeHead 200,
-            'Content-Type':   'application/json'
-        response.end JSON.stringify(responseobj)
+          console.log(responseobj)
+          response.writeHead 200,
+              'Content-Type':   'application/json'
+          response.end JSON.stringify(responseobj)
     else
       console.log("unauthorized request")
       response.writeHead 404
@@ -125,6 +125,9 @@ parse = (json, query) ->
     result
   else
     false
+
+randomColor = () ->
+  return '#'+(0x1000000+(Math.random())*0xffffff).toString(16).substr(1,6);
 
 
 
