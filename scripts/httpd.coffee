@@ -17,10 +17,11 @@
 #   /hubot/info
 #   /hubot/ip
 
+
 spawn = require('child_process').spawn
 
 module.exports = (robot) ->
-
+  
   robot.router.get "/hubot/version", (req, res) ->
     res.end robot.version
 
@@ -47,17 +48,19 @@ module.exports = (robot) ->
     if request.headers.authorization == check
       data = request.body
       responseobj = {}
-      if data.queryResult.parameters.person == ""
-        console.log(data.queryResult.parameters.message)
+      if data.queryResult.parameters.name == ""
+        console.log(data.queryResult.parameters.any)
+        robot.send room: 'general', "Announcement : '#{data.queryResult.parameters.any}'"
       else
-        query = data.queryResult.parameters.person.name.toLowerCase()
+        query = data.queryResult.parameters.name.toLowerCase()
         robot.http(process.env.INFO_SPREADSHEET_URL)
         .query({
           output: "csv"
         })
         .get() (err, res, body) ->
           result = parse body, query
-          if result.length == 0
+          console.log(result.length)
+          if result.length==0
             responseobj =     {
               "fulfillmentText": "This is a text response",
               "fulfillmentMessages": [
@@ -79,7 +82,7 @@ module.exports = (robot) ->
               }
             }
           else
-            for user in result
+            if result.length==1
               responseobj =     {
                 "fulfillmentText": "This is a text response",
                 "fulfillmentMessages": [
@@ -97,10 +100,47 @@ module.exports = (robot) ->
                         },
                         {
                                   "basicCard":{
-                                      "formattedText":"Github : "+user[8]+"\n  \nMobile : "+user[1]+"\n  \nEmail : "+user[2]+"\n  \nYear : "+user[4]+"\n  \nBranch : "+user[5]+"\n  \nEnrollment no : "+user[6]+"\n  \nDOB : "+user[3],
-                                      "title":user[0]
+                                      "formattedText": "Github : "+result[0][8]+"\n  \nMobile : "+result[0][1]+"\n  \nEmail : "+result[0][2]+"\n  \n"+result[0][4]+"    "+result[0][5]+"    ("+result[0][6]+")",
+                                      "title":result[0][0]
                                   }
                               }
+                      ]
+                    }
+                  },
+                }
+              }
+            else
+              basicCardArray = []
+              for user in result
+                basicCardArray1 = {
+                  "description":"Github : "+user[8]+"\nMobile : "+user[1]+"\nEmail : "+user[2]+"\n"+user[4]+"       "+user[5]+"   ("+user[6]+")" ,
+                  "title":user[0],
+                  "openUrlAction": {
+                      "url": "https://github.com/"+user[8]
+                    },
+
+                }
+                basicCardArray.push basicCardArray1
+              responseobj =     {
+                "fulfillmentText": "This is a text response",
+                "fulfillmentMessages": [
+                ],
+                "source": " ",
+                "payload": {
+                  "google": {
+                    "expectUserResponse": true,
+                    "richResponse": {
+                      "items": [
+                        {
+                          "simpleResponse": {
+                            "textToSpeech": "Here it is"
+                          }
+                        },
+                        {
+                                  "carouselBrowse": {
+                                    "items" : basicCardArray
+                                  }
+                              },
                       ]
                     }
                   },
@@ -125,9 +165,3 @@ parse = (json, query) ->
     result
   else
     false
-
-randomColor = () ->
-  return '#'+(0x1000000+(Math.random())*0xffffff).toString(16).substr(1,6);
-
-
-
