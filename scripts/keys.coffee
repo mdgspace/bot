@@ -239,10 +239,10 @@ module.exports = (robot)->
 			msgText+=key_holder3
 			msgText+=" has yellow keys.\n"
 		if key_holder4 != ""
-			msgText+=key_holder3
+			msgText+=key_holder4
 			msgText+=" has green keys.\n"
 		if key_holder5 != ""
-			msgText+=key_holder3
+			msgText+=key_holder5
 			msgText+=" has orange keys.\n"
 		if msgText is ""
 			msg.send "Ah! Nobody informed me about any keys. Don't hold me responsible for this :expressionless:"
