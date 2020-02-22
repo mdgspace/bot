@@ -30,19 +30,19 @@ module.exports = (robot)->
 		robot.brain.set("keyRed",Key1)
 		Key1	
 	keyBlue = ()->
-		Key2 = robot.brain.get("keyBlue") or ""
+		Key1 = robot.brain.get("keyBlue") or ""
 		robot.brain.set("keyBlue",Key2)
 		Key2	
 	keyYellow = ()->
-		Key3 = robot.brain.get("keyYellow") or ""
+		Key1 = robot.brain.get("keyYellow") or ""
 		robot.brain.set("keyYellow",Key3)
 		Key3	
 	keyGreen = ()->
-		Key4 = robot.brain.get("keyGreen") or ""
+		Key1 = robot.brain.get("keyGreen") or ""
 		robot.brain.set("keyGreen",Key4)
 		Key4	
 	keyOrange = ()->
-		Key5 = robot.brain.get("keyOrange") or ""
+		Key1 = robot.brain.get("keyOrange") or ""
 		robot.brain.set("keyOrange",Key5)
 		Key5	
 
@@ -76,41 +76,45 @@ module.exports = (robot)->
 				msg.send "Okay #{name} has #{keyname} keys"	
 
 	#2this section belongs to "i dont have key"
-	robot.respond /i (do not|don\'t|dont) (has the|have the|has|have) (.+) (key|keys)/i , (msg)->
-		keyname = msg.match[3]
+	robot.respond /i (do not|don\'t|dont) (has the|have the|has|have) (key|keys)/i , (msg)->
 		name = msg.message.user.name
 		user = robot.brain.userForName name
-		unless keyname not in  ["red", "blue", "yellow", "green", "orange"]
-			if keyname is 'red' 
-				key_holder = keyRed()
-				if key_holder is name
-					key_holder = ""	
-				robot.brain.set("keyRed",key_holder)	
-			else if keyname is 'blue'
-				key_holder = keyBlue()
-				if key_holder is name
-					key_holder = ""
-				robot.brain.set("keyBlue",key_holder)	
-			else if keyname is 'yellow'
-				key_holder = keyYellow()
-				if key_holder is name
-					key_holder = ""	
-				robot.brain.set("keyYellow",key_holder)
-			else if keyname is 'green'
-				key_holder = keyGreen()
-				if key_holder is name
-					key_holder = ""	
-				robot.brain.set("keyGreen",key_holder)
-			else if keyname is 'orange'
-				key_holder = keyOrange()
-				if key_holder is name
-					key_holder = ""	
-				robot.brain.set("keyOrange",key_holder)
-			if typeof user is 'object'
-				if key_holder is ""
-					msg.send "Okay #{name} doesn't have #{keyname} keys. Who got the #{keyname} keys then?"
-				else
-					msg.send "Yes , I know buddy, its because #{key_holder} has got the #{keyname} keys"
+		key_holder1 = keyRed()
+		key_holder2 = keyBlue()
+		key_holder3 = keyYellow()
+		key_holder4 = keyGreen() 
+		key_holder5 = keyOrange()
+		if name is key_holder1
+				key_holder1 = ""	
+				robot.brain.set("keyRed",key_holder1)	
+				msg.send "Okay #{name} doesn't have Red keys. Who got the Red keys then?"
+		else if name is key_holder2
+				key_holder2 = ""	
+				robot.brain.set("keyBlue",key_holder2)	
+				msg.send "Okay #{name} doesn't have Blue keys. Who got the Blue keys then?"
+		else if name is key_holder3
+				key_holder3 = ""	
+				robot.brain.set("keyYellow",key_holder3)	
+				msg.send "Okay #{name} doesn't have Yellow keys. Who got the Yellow keys then?"
+		else if name is key_holder4
+				key_holder4 = ""	
+				robot.brain.set("keyGreen",key_holder4)	
+				msg.send "Okay #{name} doesn't have Green keys. Who got the green keys then?"
+		else if name is key_holder5
+				key_holder5 = ""	
+				robot.brain.set("keyOrange",key_holder5)	
+				msg.send "Okay #{name} doesn't have orange keys. Who got the orange keys then?"
+		else if typeof user is 'object'
+				if key_holder1 is not ""
+					msg.send "Yes , I know buddy, its because #{key_holder1} has got the Red keys\n"
+				if key_holder2 is not ""
+					msg.send "Yes , I know buddy, its because #{key_holder2} has got the Blue keys\n"
+				if key_holder3 is not ""
+					msg.send "Yes , I know buddy, its because #{key_holder3} has got the yellow keys\n"
+				if key_holder4 is not ""
+					msg.send "Yes , I know buddy, its because #{key_holder4} has got the green keys\n"
+				if key_holder5 is not ""
+					msg.send "Yes , I know buddy, its because #{key_holder5} has got the orange keys\n"
 
     #3this section belongs to "$name has keys"
 	robot.respond /(.+) (has the|have the|has|have) (.+) (key|keys)/i , (msg)->
@@ -144,37 +148,95 @@ module.exports = (robot)->
 						robot.brain.set("keyOrange",key_holder) 
 					msg.send "Okay, so now the #{keyname} keys are with #{othername}"	
     #4this section belongs to "i gave the keys to $name"
-	robot.respond /(i|I) (have given the|had given the|have given|gave the|had given|gave) (.+) (key|keys) to (.+)/i , (msg)->
-		othername = msg.match[5]
-		keyname = msg.match[3]
+	robot.respond /(i|I) (have given the|had given the|have given|gave the|had given|gave) (key|keys) to (.+)/i , (msg)->
+		othername = msg.match[4]
 		name = msg.message.user.name
-		unless keyname not in ["red", "blue", "yellow", "green", "orange"]
-			users = robot.brain.userForName othername
+		key_holder1 = keyRed()
+		key_holder2 = keyBlue()
+		key_holder3 = keyYellow()
+		key_holder4 = keyGreen() 
+		key_holder5 = keyOrange()
+		keyname=""
+		users = robot.brain.userForName othername
+		if name is key_holder1
 			if users is null
-				key_holder = null
+				key_holder1 = null
+				robot.brain.set("keyRed",key_holder1)
+				keyname="Red"
 			else
-				key_holder = users.name
-			if key_holder is null
+				key_holder1 = users.name
+				robot.brain.set("keyRed",key_holder1)
+				keyname="Red"
+		else if name is key_holder2
+			if users is null
+				key_holder2 = null
+				robot.brain.set("keyBlue",key_holder2)
+				keyname="Blue"
+			else
+				key_holder2 = users.name
+				robot.brain.set("keyBlue",key_holder2)
+				keyname="Blue"
+		else if name is key_holder3
+			if users is null
+				key_holder3 = null
+				robot.brain.set("keyYellow",key_holder3)
+				keyname="yellow"
+			else
+				key_holder3 = users.name
+				robot.brain.set("keyYellow",key_holder3)
+				keyname="yellow"
+		else if name is key_holder4
+			if users is null
+				key_holder4 = null
+				robot.brain.set("keyGreen",key_holder4)
+				keyname="green"
+			else
+				key_holder4 = users.name
+				robot.brain.set("keyGreen",key_holder4)
+				keyname="green"
+		else if name is key_holder5
+			if users is null
+				key_holder5 = null
+				robot.brain.set("keyOrange",key_holder5)
+				keyname="orange"
+			else
+				key_holder5 = users.name
+				robot.brain.set("keyOrange",key_holder5)
+				keyname="orange"
+			if key_holder1 is null or key_holder2 is null or key_holder3 is null or key_holder4 is null or key_holder5 is null 
 				if othername is 'you'
 					msg.send "That's utter lies! How can you blame a bot to have the keys? #{name} is a liar!"
 				else if othername is robot.name
 					msg.send "That's utter lies! How can you blame a bot to have the keys?"
 				else
 					msg.send "I don't know anyone by the name #{othername}"
-			else
-				if keyname is 'red'
-					robot.brain.set("keyRed",key_holder)	
-				else if keyname is 'blue'
-					robot.brain.set("keyBlue",key_holder)
-				else if keyname is 'yellow'
-					robot.brain.set("keyYellow",key_holder)
-				else if keyname is 'green'
-					robot.brain.set("keyGreen",key_holder)
-				else if keyname is 'orange'
-					robot.brain.set("keyOrange",key_holder)
+					robot.brain.set("keyOrange",key_holder5)
+			else 
 				msg.send "Okay, so now the #{keyname} keys are with #{users.name}"
-	
-	#5this section is to print the details about the key holder.		
+	#5this section is for commands -> {i} dont  have the keys
+	robot.respond /(.+) (do not|don\'t|dont) (has the|have the|has|have) (key|keys)/i , (msg)->
+		othername = msg.match[1]
+		key_holder1 = keyRed()
+		key_holder2 = keyBlue()
+		key_holder3 = keyYellow()
+		key_holder4 = keyGreen() 
+		key_holder5 = keyOrange()
+		if othername is key_holder1
+				robot.brain.set("keyRed" ,key_holder1)
+				msg.send "Okay, so now the Red keys are with #{othername}"
+		else if othername is key_holder2
+				robot.brain.set("keyBlue" ,key_holder1)
+				msg.send "Okay, so now the Blue keys are with #{othername}"
+		else if othername is key_holder3
+				robot.brain.set("keyYellow" ,key_holder1)
+				msg.send "Okay, so now the yellow keys are with #{othername}"
+		else if othername is key_holder4
+				robot.brain.set("keyGreen" ,key_holder1)
+				msg.send "Okay, so now the green keys are with #{othername}"
+		else if othername is key_holder5
+				robot.brain.set("keyOrange" ,key_holder1)
+				msg.send "Okay, so now the orange keys are with #{othername}"
+	#6this section is to print the details about the key holder.		
 	robot.respond /who (has the|have the|has|have) (.+) (key|keys)/i , (msg)->
 		keyname = msg.match[2]
 		if keyname is 'red'
@@ -239,10 +301,10 @@ module.exports = (robot)->
 			msgText+=key_holder3
 			msgText+=" has yellow keys.\n"
 		if key_holder4 != ""
-			msgText+=key_holder4
+			msgText+=key_holder3
 			msgText+=" has green keys.\n"
 		if key_holder5 != ""
-			msgText+=key_holder5
+			msgText+=key_holder3
 			msgText+=" has orange keys.\n"
 		if msgText is ""
 			msg.send "Ah! Nobody informed me about any keys. Don't hold me responsible for this :expressionless:"
