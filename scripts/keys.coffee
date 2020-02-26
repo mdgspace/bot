@@ -245,7 +245,7 @@ module.exports = (robot)->
 			if msgText is ""
 				msg.send "Ah! Nobody informed me about the keys. Don't hold me responsible for this :expressionless:"
 			else
-				msgText+=" has red keys"
+				msgText + = " has red keys"
 				msg.send msgText	
 			robot.brain.set("keyRed" ,key_holder)
 		else if keyname is 'blue'
@@ -254,7 +254,7 @@ module.exports = (robot)->
 			if msgText is ""
 				msg.send "Ah! Nobody informed me about the keys. Don't hold me responsible for this :expressionless:"
 			else
-				msgText+=" has blue keys"
+				msgText + = " has blue keys"
 				msg.send msgText	
 			robot.brain.set("keyBlue" ,key_holder)
 		else if keyname is 'yellow'
@@ -263,7 +263,7 @@ module.exports = (robot)->
 			if msgText is ""
 				msg.send "Ah! Nobody informed me about the keys. Don't hold me responsible for this :expressionless:"
 			else
-				msgText+=" has yellow keys"
+				msgText + = " has yellow keys"
 				msg.send msgText	
 			robot.brain.set("keyYellow" ,key_holder)
 		else if keyname is 'green'
@@ -272,7 +272,7 @@ module.exports = (robot)->
 			if msgText is ""
 				msg.send "Ah! Nobody informed me about the keys. Don't hold me responsible for this :expressionless:"
 			else
-				msgText+=" has green keys"
+				msgText + = " has green keys"
 				msg.send msgText	
 			robot.brain.set("keyGreen" ,key_holder)
 		else if keyname is 'orange'
@@ -281,7 +281,7 @@ module.exports = (robot)->
 			if msgText is ""
 				msg.send "Ah! Nobody informed me about the keys. Don't hold me responsible for this :expressionless:"
 			else
-				msgText+=" has orange keys"
+				msgText + = " has orange keys"
 				msg.send msgText	
 			robot.brain.set("keyOrange" ,key_holder)
 	robot.respond /who (has the|have the|has|have) (key|keys)/i , (msg)->
@@ -291,21 +291,21 @@ module.exports = (robot)->
 		key_holder4 = keyGreen() 
 		key_holder5 = keyOrange()  		
 		msgText=""
-		if key_holder1 != ""
-			msgText+=key_holder1
-			msgText+=" has red keys.\n"
-		if key_holder2 != ""
-			msgText+=key_holder2
-			msgText+=" has blue keys.\n"
-		if key_holder3 != ""
-			msgText+=key_holder3
-			msgText+=" has yellow keys.\n"
-		if key_holder4 != ""
-			msgText+=key_holder3
-			msgText+=" has green keys.\n"
-		if key_holder5 != ""
-			msgText+=key_holder3
-			msgText+=" has orange keys.\n"
+		if key_holder1 ! = ""
+			msgText + = key_holder1
+			msgText + = " has red keys.\n"
+		if key_holder2 ! = ""
+			msgText + = key_holder2
+			msgText + = " has blue keys.\n"
+		if key_holder3 ! = ""
+			msgText + = key_holder3
+			msgText + = " has yellow keys.\n"
+		if key_holder4 ! = ""
+			msgText + = key_holder3
+			msgText + = " has green keys.\n"
+		if key_holder5 ! = ""
+			msgText + = key_holder3
+			msgText + = " has orange keys.\n"
 		if msgText is ""
 			msg.send "Ah! Nobody informed me about any keys. Don't hold me responsible for this :expressionless:"
 		else
