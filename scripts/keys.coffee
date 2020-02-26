@@ -20,7 +20,7 @@
 #   Punit Dhoot (@pdhoot)
 #   Developer at SDSLabs (@sdslabs
 #  Edit:
-#   prakhar gupta
+#  Prakhar Gupta at Mdg
 
 
 module.exports = (robot)->
@@ -30,19 +30,19 @@ module.exports = (robot)->
 		robot.brain.set("keyRed",Key1)
 		Key1	
 	keyBlue = ()->
-		Key1 = robot.brain.get("keyBlue") or ""
+		Key2 = robot.brain.get("keyBlue") or ""
 		robot.brain.set("keyBlue",Key2)
 		Key2	
 	keyYellow = ()->
-		Key1 = robot.brain.get("keyYellow") or ""
+		Key3 = robot.brain.get("keyYellow") or ""
 		robot.brain.set("keyYellow",Key3)
 		Key3	
 	keyGreen = ()->
-		Key1 = robot.brain.get("keyGreen") or ""
+		Key4 = robot.brain.get("keyGreen") or ""
 		robot.brain.set("keyGreen",Key4)
 		Key4	
 	keyOrange = ()->
-		Key1 = robot.brain.get("keyOrange") or ""
+		Key5 = robot.brain.get("keyOrange") or ""
 		robot.brain.set("keyOrange",Key5)
 		Key5	
 
