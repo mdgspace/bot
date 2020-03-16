@@ -203,39 +203,51 @@ module.exports = (robot)->
 				key_holder5 = users.name
 				robot.brain.set("keyOrange",key_holder5)
 				keyname="orange"
-			if key_holder1 is null or key_holder2 is null or key_holder3 is null or key_holder4 is null or key_holder5 is null 
-				if othername is 'you'
-					msg.send "That's utter lies! How can you blame a bot to have the keys? #{name} is a liar!"
-				else if othername is robot.name
-					msg.send "That's utter lies! How can you blame a bot to have the keys?"
-				else
-					msg.send "I don't know anyone by the name #{othername}"
-					robot.brain.set("keyOrange",key_holder5)
-			else 
-				msg.send "Okay, so now the #{keyname} keys are with #{users.name}"
+		else 
+			msg.send "DEAR Sir,you dont even have a key\n"
+		if key_holder1 is null or key_holder2 is null or key_holder3 is null or key_holder4 is null or key_holder5 is null 
+			if othername is 'you'
+				msg.send "That's utter lies! How can you blame a bot to have the keys? #{name} is a liar!"
+			else if othername is robot.name
+				msg.send "That's utter lies! How can you blame a bot to have the keys?"
+			else
+				msg.send "I don't know anyone by the name #{othername}"
+		else 
+			msg.send "Okay, so now the #{keyname} keys are with #{users.name}"
 	#this section is for commands -> {i} dont  have the keys
 	robot.respond /(.+) (do not|don\'t|dont) (has the|have the|has|have) (key|keys)/i , (msg)->
-		othername = msg.match[1]
+		users = msg.match[1]
+		othername = robot.brain.userForName users
 		key_holder1 = keyRed()
 		key_holder2 = keyBlue()
 		key_holder3 = keyYellow()
 		key_holder4 = keyGreen() 
 		key_holder5 = keyOrange()
 		if othername is key_holder1
+				key_holder1=""
 				robot.brain.set("keyRed" ,key_holder1)
-				msg.send "Okay, so now the red keys are with #{othername}"
+				msg.send "Okay, so now the red keys are not with #{othername}"
 		else if othername is key_holder2
-				robot.brain.set("keyBlue" ,key_holder1)
-				msg.send "Okay, so now the blue keys are with #{othername}"
+				key_holder2=""
+				robot.brain.set("keyBlue" ,key_holder2)
+				msg.send "Okay, so now the blue keys are not with #{othername}"
 		else if othername is key_holder3
-				robot.brain.set("keyYellow" ,key_holder1)
-				msg.send "Okay, so now the yellow keys are with #{othername}"
+				key_holder3=""
+				robot.brain.set("keyYellow" ,key_holder3)
+				msg.send "Okay, so now the yellow keys are not with #{othername}"
 		else if othername is key_holder4
-				robot.brain.set("keyGreen" ,key_holder1)
-				msg.send "Okay, so now the green keys are with #{othername}"
+				key_holder4=""
+				robot.brain.set("keyGreen" ,key_holder4)
+				msg.send "Okay, so now the green keys are not with #{othername}"
 		else if othername is key_holder5
-				robot.brain.set("keyOrange" ,key_holder1)
-				msg.send "Okay, so now the orange keys are with #{othername}"
+				key_holder5=""
+				robot.brain.set("keyOrange" ,key_holder5)
+				msg.send "Okay, so now the orange keys are not with #{othername}"
+		robot.brain.set("keyRed" ,key_holder1)
+		robot.brain.set("keyBlue" ,key_holder2)
+		robot.brain.set("keyYellow" ,key_holder3)
+		robot.brain.set("keyGreen" ,key_holder4)
+		robot.brain.set("keyOrange" ,key_holder5)
 	#this section is to print the details about the key holder.		
 	robot.respond /who (has the|have the|has|have) (.+) (key|keys)/i , (msg)->
 		keyname = msg.match[2]
@@ -284,6 +296,7 @@ module.exports = (robot)->
 				msgText += " has orange keys"
 				msg.send msgText	
 			robot.brain.set("keyOrange" ,key_holder)
+	#this section is for bro who has keys
 	robot.respond /who (has the|have the|has|have) (key|keys)/i , (msg)->
 		key_holder1 = keyRed()
 		key_holder2 = keyBlue()
@@ -301,10 +314,10 @@ module.exports = (robot)->
 			msgText += key_holder3
 			msgText += " has yellow keys.\n"
 		if key_holder4 != ""
-			msgText += key_holder3
+			msgText += key_holder4
 			msgText += " has green keys.\n"
 		if key_holder5 != ""
-			msgText += key_holder3
+			msgText += key_holder5
 			msgText += " has orange keys.\n"
 		if msgText is ""
 			msg.send "Ah! Nobody informed me about any keys. Don't hold me responsible for this :expressionless:"
@@ -313,5 +326,24 @@ module.exports = (robot)->
 		robot.brain.set("keyRed" ,key_holder1)
 		robot.brain.set("keyBlue" ,key_holder2)
 		robot.brain.set("keyYellow" ,key_holder3)
-		robot.brain.set("keyGreen" ,key_holder2)
-		robot.brain.set("keyOrange" ,key_holder2)
+		robot.brain.set("keyGreen" ,key_holder4)
+		robot.brain.set("keyOrange" ,key_holder5)
+	#this section is for bro reset all keys
+	robot.respond /(reset all) (key|keys)/i , (msg)->
+		key_holder1 = keyRed()
+		key_holder2 = keyBlue()
+		key_holder3 = keyYellow()
+		key_holder4 = keyGreen() 
+		key_holder5 = keyOrange()  		
+		key_holder1 = ""
+		key_holder2 = ""
+		key_holder3 = ""
+		key_holder4 = ""
+		key_holder5 = ""
+		msg.send "ALL KEYS RESET TO NULL"
+		robot.brain.set("keyRed" ,key_holder1)
+		robot.brain.set("keyBlue" ,key_holder2)
+		robot.brain.set("keyYellow" ,key_holder3)
+		robot.brain.set("keyGreen" ,key_holder4)
+		robot.brain.set("keyOrange" ,key_holder5)
+	
