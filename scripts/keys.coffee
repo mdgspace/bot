@@ -339,4 +339,4 @@ module.exports = (robot)->
 		robot.brain.set("keyOrange" ,key_holder5)
 	#commands
 	robot.respond /(show key commands)/i , (msg)->
-		msg.send "i have <color> keys\n i gave keys to <name> \n i dont have keys \n who has keys \n reset all keys \n THESE ARE ENOUGH \n "
+		msg.send " I have <color> keys \n I gave keys to <name> \n <name> have <color> keys \n I dont have keys \n Who has keys \n Reset all keys \n "
