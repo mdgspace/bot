@@ -10,11 +10,11 @@
 #	bot xyz has keys : sets xyz as the holder of keys
 #
 # Examples:
-#   :bot who has <color> keys
-#   :bot i have <color> keys
-#   :bot i dont have <color> keys
-#	:bot who has <color> keys
-#	:bot ravi has <color> keys
+#   :bro who has keys
+#   :bro i have <color> keys
+#   :bro i dont have keys
+#	:bro who has <color> keys
+#	:bro ravi has <color> keys
 #
 # Author:
 #   Punit Dhoot (@pdhoot)
@@ -46,7 +46,7 @@ module.exports = (robot)->
 		robot.brain.set("keyOrange",Key5)
 		Key5	
 
-    #this section belongs to "i have keys"
+    #this section belongs to "i have color keys"
 	robot.respond /i (have the|have) (.+) (key|keys)/i, (msg)->
 		keyname = msg.match[2]
 		name = msg.message.user.name 
@@ -104,19 +104,10 @@ module.exports = (robot)->
 				key_holder5 = ""	
 				robot.brain.set("keyOrange",key_holder5)	
 				msg.send "Okay #{name} doesn't have orange keys. Who got the orange keys then?"
-		else if typeof user is 'object'
-				if key_holder1 is not ""
-					msg.send "Yes , I know buddy, its because #{key_holder1} has got the red keys\n"
-				if key_holder2 is not ""
-					msg.send "Yes , I know buddy, its because #{key_holder2} has got the blue keys\n"
-				if key_holder3 is not ""
-					msg.send "Yes , I know buddy, its because #{key_holder3} has got the yellow keys\n"
-				if key_holder4 is not ""
-					msg.send "Yes , I know buddy, its because #{key_holder4} has got the green keys\n"
-				if key_holder5 is not ""
-					msg.send "Yes , I know buddy, its because #{key_holder5} has got the orange keys\n"
+		else 
+			msg.send "Dear sir/mam, You dont even have a key,you Donkey"
 
-    #this section belongs to "$name has keys"
+    #this section belongs to "$name has color keys"
 	robot.respond /(.+) (has the|have the|has|have) (.+) (key|keys)/i , (msg)->
 		othername = msg.match[1]
 		keyname = msg.match[3]
@@ -131,10 +122,10 @@ module.exports = (robot)->
 				if key_holder is null
 					if othername is 'you'
 						msg.send "How am I supposed to take those #{keyname} keys? #{name} is a liar!"
-					else if othername is robot.name
-						msg.send "That's utter lies! How can you blame a bot to have the keys?"
 					else
 						msg.send "I don't know anyone by the name #{othername}"
+				else if othername is robot.name
+						msg.send "That's utter lies! How can you blame a bot to have the keys?"
 				else
 					if keyname is 'red'
 						robot.brain.set("keyRed",key_holder)
@@ -158,62 +149,62 @@ module.exports = (robot)->
 		key_holder5 = keyOrange()
 		keyname=""
 		users = robot.brain.userForName othername
-		if name is key_holder1
+		if name is key_holder1 and users.name is not "bro"
 			if users is null
 				key_holder1 = null
 				robot.brain.set("keyRed",key_holder1)
 				keyname="red"
+				msg.send "I don't know anyone by the name #{othername}"
 			else
 				key_holder1 = users.name
 				robot.brain.set("keyRed",key_holder1)
 				keyname="red"
-		else if name is key_holder2
+		else if name is key_holder2 and users.name is not "bro"
 			if users is null
 				key_holder2 = null
 				robot.brain.set("keyBlue",key_holder2)
 				keyname="blue"
+				msg.send "I don't know anyone by the name #{othername}"
 			else
 				key_holder2 = users.name
 				robot.brain.set("keyBlue",key_holder2)
 				keyname="blue"
-		else if name is key_holder3
+		else if name is key_holder3 and users.name is not "bro"
 			if users is null
 				key_holder3 = null
 				robot.brain.set("keyYellow",key_holder3)
 				keyname="yellow"
+				msg.send "I don't know anyone by the name #{othername}"
 			else
 				key_holder3 = users.name
 				robot.brain.set("keyYellow",key_holder3)
 				keyname="yellow"
-		else if name is key_holder4
+		else if name is key_holder4 and users.name is not "bro"
 			if users is null
 				key_holder4 = null
 				robot.brain.set("keyGreen",key_holder4)
 				keyname="green"
+				msg.send "I don't know anyone by the name #{othername}"
 			else
 				key_holder4 = users.name
 				robot.brain.set("keyGreen",key_holder4)
 				keyname="green"
-		else if name is key_holder5
+		else if name is key_holder5 and users.name is not "bro"
 			if users is null
 				key_holder5 = null
 				robot.brain.set("keyOrange",key_holder5)
 				keyname="orange"
+				msg.send "I don't know anyone by the name #{othername}"
 			else
 				key_holder5 = users.name
 				robot.brain.set("keyOrange",key_holder5)
 				keyname="orange"
-		else 
+		else if users.name is not "bro"
 			msg.send "DEAR Sir,you dont even have a key\n"
-		if key_holder1 is null or key_holder2 is null or key_holder3 is null or key_holder4 is null or key_holder5 is null 
-			if othername is 'you'
-				msg.send "That's utter lies! How can you blame a bot to have the keys? #{name} is a liar!"
-			else if othername is robot.name
-				msg.send "That's utter lies! How can you blame a bot to have the keys?"
-			else
-				msg.send "I don't know anyone by the name #{othername}"
-		else 
-			msg.send "Okay, so now the #{keyname} keys are with #{users.name}"
+		if othername is 'you'
+			msg.send "That's utter lies! How can you blame a bot to have the keys? #{name} is a liar!"
+		else if othername is robot.name
+			msg.send "That's utter lies! How can you blame a bot to have the keys?"
 	#this section is for commands -> {i} dont  have the keys
 	robot.respond /(.+) (do not|don\'t|dont) (has the|have the|has|have) (key|keys)/i , (msg)->
 		users = msg.match[1]
@@ -346,4 +337,6 @@ module.exports = (robot)->
 		robot.brain.set("keyYellow" ,key_holder3)
 		robot.brain.set("keyGreen" ,key_holder4)
 		robot.brain.set("keyOrange" ,key_holder5)
-	
+	#commands
+	robot.respond /(show key commands)/i , (msg)->
+		msg.send "i have <color> keys\n i gave keys to <name> \n i dont have keys \n who has keys \n reset all keys \n THESE ARE ENOUGH \n "
