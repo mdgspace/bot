@@ -149,7 +149,7 @@ module.exports = (robot)->
 		key_holder5 = keyOrange()
 		keyname=""
 		users = robot.brain.userForName othername
-		if name is key_holder1 and users.name is not "bro"
+		if name is key_holder1
 			if users is null
 				key_holder1 = null
 				robot.brain.set("keyRed",key_holder1)
@@ -160,7 +160,7 @@ module.exports = (robot)->
 				robot.brain.set("keyRed",key_holder1)
 				keyname="red"
 				msg.send "Okay, so now you dont have red keys"
-		else if name is key_holder2 and users.name is not "bro"
+		else if name is key_holder2
 			if users is null
 				key_holder2 = null
 				robot.brain.set("keyBlue",key_holder2)
@@ -171,7 +171,7 @@ module.exports = (robot)->
 				robot.brain.set("keyBlue",key_holder2)
 				keyname="blue"
 				msg.send "Okay, so now you dont have blue keys"
-		else if name is key_holder3 and users.name is not "bro"
+		else if name is key_holder3
 			if users is null
 				key_holder3 = null
 				robot.brain.set("keyYellow",key_holder3)
@@ -182,7 +182,7 @@ module.exports = (robot)->
 				robot.brain.set("keyYellow",key_holder3)
 				keyname="yellow"
 				msg.send "Okay, so now you dont have yellow keys"
-		else if name is key_holder4 and users.name is not "bro"
+		else if name is key_holder4
 			if users is null
 				key_holder4 = null
 				robot.brain.set("keyGreen",key_holder4)
@@ -193,7 +193,7 @@ module.exports = (robot)->
 				robot.brain.set("keyGreen",key_holder4)
 				keyname="green"
 				msg.send "Okay, so now you dont have green keys"
-		else if name is key_holder5 and users.name is not "bro"
+		else if name is key_holder5
 			if users is null
 				key_holder5 = null
 				robot.brain.set("keyOrange",key_holder5)
@@ -204,7 +204,7 @@ module.exports = (robot)->
 				robot.brain.set("keyOrange",key_holder5)
 				keyname="orange"
 				msg.send "Okay, so now you dont have orange keys"
-		else if users.name is not "bro"
+		else
 			msg.send "DEAR Sir,you dont even have a key\n"
 		if othername is 'you'
 			msg.send "That's utter lies! How can you blame a bot to have the keys? #{name} is a liar!"
