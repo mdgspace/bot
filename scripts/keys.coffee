@@ -19,8 +19,8 @@
 # Author:
 #   Punit Dhoot (@pdhoot)
 #   Developer at SDSLabs (@sdslabs
-#  Edit:
-#  Prakhar Gupta at Mdg
+# Edit:
+#   Prakhar Gupta at Mdg
 
 
 module.exports = (robot)->
