@@ -245,48 +245,23 @@ module.exports = (robot)->
 		if keyname is 'red'
 			key_holder = keyRed()
 			msgText = key_holder
-			if msgText is ""
-				msg.send "Ah! Nobody informed me about the keys. Don't hold me responsible for this :expressionless:"
-			else
-				msgText += " has red keys"
-				msg.send msgText	
-			robot.brain.set("keyRed" ,key_holder)
 		else if keyname is 'blue'
 			key_holder = keyBlue()
 			msgText = key_holder
-			if msgText is ""
-				msg.send "Ah! Nobody informed me about the keys. Don't hold me responsible for this :expressionless:"
-			else
-				msgText += " has blue keys"
-				msg.send msgText	
-			robot.brain.set("keyBlue" ,key_holder)
 		else if keyname is 'yellow'
 			key_holder = keyYellow()
 			msgText = key_holder
-			if msgText is ""
-				msg.send "Ah! Nobody informed me about the keys. Don't hold me responsible for this :expressionless:"
-			else
-				msgText += " has yellow keys"
-				msg.send msgText	
-			robot.brain.set("keyYellow" ,key_holder)
 		else if keyname is 'green'
 			key_holder = keyGreen()
 			msgText = key_holder
-			if msgText is ""
-				msg.send "Ah! Nobody informed me about the keys. Don't hold me responsible for this :expressionless:"
-			else
-				msgText += " has green keys"
-				msg.send msgText	
-			robot.brain.set("keyGreen" ,key_holder)
 		else if keyname is 'orange'
 			key_holder = keyOrange()
 			msgText = key_holder
-			if msgText is ""
-				msg.send "Ah! Nobody informed me about the keys. Don't hold me responsible for this :expressionless:"
-			else
-				msgText += " has orange keys"
-				msg.send msgText	
-			robot.brain.set("keyOrange" ,key_holder)
+		if msgText is ""
+			msg.send "Ah! Nobody informed me about the keys. Don't hold me responsible for this :expressionless:"
+		else
+			msgText += " has #{keyname} keys"
+		msg.send msgText		
 	#this section is for bro who has keys
 	robot.respond /who (has the|have the|has|have) (key|keys)/i , (msg)->
 		key_holder1 = keyRed()
