@@ -159,6 +159,7 @@ module.exports = (robot)->
 				key_holder1 = users.name
 				robot.brain.set("keyRed",key_holder1)
 				keyname="red"
+				msg.send "Okay, so now you dont have red keys"
 		else if name is key_holder2 and users.name is not "bro"
 			if users is null
 				key_holder2 = null
@@ -169,6 +170,7 @@ module.exports = (robot)->
 				key_holder2 = users.name
 				robot.brain.set("keyBlue",key_holder2)
 				keyname="blue"
+				msg.send "Okay, so now you dont have blue keys"
 		else if name is key_holder3 and users.name is not "bro"
 			if users is null
 				key_holder3 = null
@@ -179,6 +181,7 @@ module.exports = (robot)->
 				key_holder3 = users.name
 				robot.brain.set("keyYellow",key_holder3)
 				keyname="yellow"
+				msg.send "Okay, so now you dont have yellow keys"
 		else if name is key_holder4 and users.name is not "bro"
 			if users is null
 				key_holder4 = null
@@ -189,6 +192,7 @@ module.exports = (robot)->
 				key_holder4 = users.name
 				robot.brain.set("keyGreen",key_holder4)
 				keyname="green"
+				msg.send "Okay, so now you dont have green keys"
 		else if name is key_holder5 and users.name is not "bro"
 			if users is null
 				key_holder5 = null
@@ -199,6 +203,7 @@ module.exports = (robot)->
 				key_holder5 = users.name
 				robot.brain.set("keyOrange",key_holder5)
 				keyname="orange"
+				msg.send "Okay, so now you dont have orange keys"
 		else if users.name is not "bro"
 			msg.send "DEAR Sir,you dont even have a key\n"
 		if othername is 'you'
