@@ -139,8 +139,8 @@ module.exports = (robot) ->
   robot.respond /score ([\w\-_]+)/i, (msg) ->
 
     # we do not want to reply in case of batch score is requested
-    bxx = /b\d\d/i
-    if bxx.exec(msg.match[0]) != null
+    fxx = /f\d\d/i
+    if fxx.exec(msg.match[0]) != null
     then return
 
     # data-store object
