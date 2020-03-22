@@ -61,7 +61,7 @@ module.exports = (robot) ->
     else
       false
 
-  robot.respond /score b(\d\d)/i, (msg) ->
+  robot.respond /score f(\d\d)/i, (msg) ->
 
     ScoreField = scorefield()
 
@@ -71,9 +71,9 @@ module.exports = (robot) ->
     yyyy = today.getFullYear()
     yy = `yyyy % 100`
     if `mm < 7`
-      `relative_year = yy + 4`
+      `relative_year = yy`
     else
-      `relative_year = yy + 5`
+      `relative_year = yy + 1`
 
     # <batch> whose score is to be shown
     batch = msg.match[1]
