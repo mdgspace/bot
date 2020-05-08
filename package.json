@@ -34,4 +34,7 @@
   "scripts": {
    "start": "node index.js"
   }
+  "scripts": {
+    "start": "bin/hubot"
+  }
 }
