@@ -19,6 +19,7 @@
 
 
 spawn = require('child_process').spawn
+util = require('./util')
 
 module.exports = (robot) ->
   
@@ -53,11 +54,7 @@ module.exports = (robot) ->
         robot.send room: 'general', "Announcement : '#{data.queryResult.parameters.any}'"
       else
         query = data.queryResult.parameters.name.toLowerCase()
-        robot.http(process.env.INFO_SPREADSHEET_URL)
-        .query({
-          output: "csv"
-        })
-        .get() (err, res, body) ->
+        util.info (body) ->
           result = parse body, query
           console.log(result.length)
           if result.length==0

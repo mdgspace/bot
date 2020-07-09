@@ -10,6 +10,8 @@
 # Author:
 #   aseem09
 
+util = require('./util')
+
 module.exports = (robot) ->
 
   scorefield = () ->
@@ -79,44 +81,40 @@ module.exports = (robot) ->
     batch = msg.match[1]
     year = relative_year - batch
 
-    robot.http(process.env.INFO_SPREADSHEET_URL)
-      .query({
-        output: "csv"
-      })
-      .get() (err, res, body) ->
-        result = []
-        result = parse body
-        user_name = []
-        user_name.push ["```Name"]
-        slackId = []
-        slackId.push ["Score"]
-        for user in result
-          user_year = user[4].split('')
-          year_info = parseInt(user_year[0], 10 );
-          if `year_info == year`
-            if user[10]
-              slackId.push [user[10]]
-              user_name.push [user[0]]
+    util.info (body) ->
+      result = []
+      result = parse body
+      user_name = []
+      user_name.push ["```Name"]
+      slackId = []
+      slackId.push ["Score"]
+      for user in result
+        user_year = user[4].split('')
+        year_info = parseInt(user_year[0], 10 );
+        if `year_info == year`
+          if user[10]
+            slackId.push [user[10]]
+            user_name.push [user[0]]
 
-        user_score = []
+      user_score = []
 
-        for i in [1..slackId.length - 1]
-          user_score[i] = ScoreField[slackId[i]] or 0
+      for i in [1..slackId.length - 1]
+        user_score[i] = ScoreField[slackId[i]] or 0
 
-        user_name = padright user_name
-        user_score = padleft user_score
+      user_name = padright user_name
+      user_score = padleft user_score
 
-        sorted = []
-        sorted.push [user_name[0], slackId[0]]
-        for i in [1..user_name.length - 1]
-          sorted.push [user_name[i], user_score[i]]
+      sorted = []
+      sorted.push [user_name[0], slackId[0]]
+      for i in [1..user_name.length - 1]
+        sorted.push [user_name[i], user_score[i]]
 
-        if sorted.length
-          sorted.sort (a, b) ->
-            b[1] - a[1]
+      if sorted.length
+        sorted.sort (a, b) ->
+          b[1] - a[1]
 
-        sorted = sorted.map (val) -> "#{val[0]} : #{val[1]}"
-        response = []
-        response += sorted.join '\n'
-        response += "```"
-        msg.send response
+      sorted = sorted.map (val) -> "#{val[0]} : #{val[1]}"
+      response = []
+      response += sorted.join '\n'
+      response += "```"
+      msg.send response
