@@ -28,6 +28,7 @@ ENV INFO_SPREADSHEET_URL "members spreadsheet"
 ENV WAIL_PIC_URL "who all in lab"
 ENV FB_APP_ACCESS_TOKEN "fb access token for random posts"
 ENV FB_VERFIY_TOKEN "fb token"
+ENV PORT "80"
 
 
 # Add user
