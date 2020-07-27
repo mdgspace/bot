@@ -1,0 +1,14 @@
+.env
+
+node_modules
+npm-debug.log
+
+**/*.log
+**/*.md
+**/.dockerignore
+**/.git/
+**/.gitattributes
+**/.gitignore
+**/.gitkeep
+**/.gitmodules
+**/Dockerfile
