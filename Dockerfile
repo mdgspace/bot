@@ -1,4 +1,4 @@
-FROM node:13
+FROM node:8.10.0
 
 # Environment variables:
 
@@ -15,7 +15,7 @@ ENV FB_WAIT_MINUTES "1"
 ENV IDLE_TIME_DURATION_HOURS "4"
 ENV HUBOT_YOUTUBE_HEAR "true"
 
-ENV PORT "80"
+ENV PORT "8080"
 
 # Add user
 RUN useradd hubot -m
@@ -26,8 +26,6 @@ RUN chown -R hubot:hubot /home/hubot
 USER hubot
 WORKDIR /home/hubot
 
-# Install dependencies.
-RUN npm install
-
 # Set a default command to run Hubot!
+# hubot calls npm install internally
 CMD ./bin/hubot -n $HUBOT_NAME -a slack
