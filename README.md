@@ -155,3 +155,10 @@ Add the subdomain hubot should connect to. If you web URL looks like
 
 You may want to get comfortable with `heroku logs` and `heroku restart`
 if you're having issues.
+
+---
+
+## Installation using Docker
+- Build the image using `docker build . -t bot:latest`
+- Add the environment variables in a .env file
+- Create a container to run the image `docker run -d --env-file .env --name bot_cont -p 127.0.0.1:<Port on host>:8080 bot`
