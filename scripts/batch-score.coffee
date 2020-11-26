@@ -89,12 +89,13 @@ module.exports = (robot) ->
       slackId = []
       slackId.push ["Score"]
       for user in result
-        user_year = user[4].split('')
-        year_info = parseInt(user_year[0], 10 );
-        if `year_info == year`
-          if user[10]
-            slackId.push [user[10]]
-            user_name.push [user[0]]
+        if (user.length >= 13)
+          user_year = user[4].split('')
+          year_info = parseInt(user_year[0], 10 );
+          if `year_info == year`
+            if user[10]
+              slackId.push [user[10]]
+              user_name.push [user[0]]
 
       user_score = []
 
