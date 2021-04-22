@@ -5,7 +5,7 @@
 #   INFO_SPREADSHEET_URL
 #
 # Commands:
-#   hubot score bxx
+#   hubot score fxx
 #
 # Author:
 #   aseem09
