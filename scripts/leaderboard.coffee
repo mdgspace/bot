@@ -5,6 +5,7 @@
 #   name++ or name-- : Adds/subtracts 1 point to/from user's score
 #   hubot score name : Shows current score of the user
 
+util = require('./util')
 module.exports = (robot) ->
 
   robot.listenerMiddleware (context, next, done) ->
@@ -116,23 +117,31 @@ module.exports = (robot) ->
     # for each ++/--
     for i in [0...msg.match.length]
       testword = msg.match[i]
-
-      # updates Scoring for words, accordingly and returns result string
-      result = updateScore(testword, ScoreField, msg.message.user.name)
-
-
-      end = start + testword.length
-
-      # generates response message for reply
-      if result.Response == "-1"
-        newmsg = "#{testword} [Sorry, You can't give ++ or -- to yourself.]"
+      
+      # search for user
+      util.info (body) ->
+      result = parse body, testword.toLowerCase()
+      
+      if not result
+        continue
       else
-        newmsg = "#{testword} [#{result.Response} #{result.Name} now at #{result.New}] "
-      oldmsg = oldmsg.substr(0, start) + newmsg + oldmsg.substr(end+1)
-      start += newmsg.length
-
-    # reply with updated message
-    msg.send "#{oldmsg}"
+        # get username from search result
+        username = result[10]
+        # update score for user (slack ID)
+        result = updateScore(username, ScoreField, msg.message.user.name)
+        # update search index
+        end = start + testword.length
+        # generate response message for reply
+        if result.Response == "-1"
+          newmsg = "#{testword} [Sorry, You can't give ++ or -- to yourself.]"
+        else
+          newmsg = "#{testword} [#{result.Response} #{result.Name} now at #{result.New}] "
+        oldmsg = oldmsg.substr(0, start) + newmsg + oldmsg.substr(end+1)
+        start += newmsg.length
+    
+    # reply with updated message, if modified
+    if oldmsg != msg.message.text
+      msg.send "#{oldmsg}"
 
 
   # response for score status of any <keyword>
@@ -171,3 +180,14 @@ responses = [
   'superb!'
   'splendid!'
 ]
+
+parse = (json, query) ->
+  result = []
+  for line in json.toString().split '\n'
+    y = line.toLowerCase().indexOf query
+    if y != -1
+      result.push line.split(',').map Function.prototype.call, String.prototype.trim
+  if result != ""
+    result[0]
+  else
+    false
