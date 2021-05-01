@@ -182,12 +182,8 @@ responses = [
 ]
 
 parse = (json, query) ->
-  result = []
   for line in json.toString().split '\n'
     y = line.toLowerCase().indexOf query
     if y != -1
-      result.push line.split(',').map Function.prototype.call, String.prototype.trim
-  if result != ""
-    result[0]
-  else
-    false
+      return line.split(',').map Function.prototype.call, String.prototype.trim
+  return false
