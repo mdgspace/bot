@@ -5,7 +5,9 @@
 #   name++ or name-- : Adds/subtracts 1 point to/from user's score
 #   hubot score name : Shows current score of the user
 
-util = require('./util')
+#get search function from info.coffee
+parse = require './info'
+
 module.exports = (robot) ->
 
   robot.listenerMiddleware (context, next, done) ->
@@ -119,8 +121,7 @@ module.exports = (robot) ->
       testword = msg.match[i]
       
       # search for user
-      util.info (body) ->
-      result = parse body, testword.toLowerCase()
+      result = parse body, testword.toLowerCase(), true
       
       if not result
         continue
@@ -180,10 +181,3 @@ responses = [
   'superb!'
   'splendid!'
 ]
-
-parse = (json, query) ->
-  for line in json.toString().split '\n'
-    y = line.toLowerCase().indexOf query
-    if y != -1
-      return line.split(',').map Function.prototype.call, String.prototype.trim
-  return false
