@@ -1,7 +1,7 @@
 https = require('follow-redirects').https
 
 # Get the user details
-exports.info = (callback) ->
+info = (callback) ->
   output = ''
   https.get process.env.INFO_SPREADSHEET_URL + "?output=csv", (res) ->
     res.on 'data', (body) ->
@@ -11,7 +11,7 @@ exports.info = (callback) ->
     res.on 'error', (err) ->
       callback err
 
-module.exports.parse = (json, query, returnSingle) ->
+parse = (json, query, returnSingle) ->
   result = []
   for line in json.toString().split '\n'
     y = line.toLowerCase().indexOf query
@@ -24,3 +24,7 @@ module.exports.parse = (json, query, returnSingle) ->
     return result
   else
     return false
+  
+  module.exports.parse = parse
+  module.exports.info = info
+  
