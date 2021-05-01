@@ -11,7 +11,7 @@ exports.info = (callback) ->
     res.on 'error', (err) ->
       callback err
 
-exports.parse = (json, query, returnSingle) ->
+module.exports.parse = (json, query, returnSingle) ->
   result = []
   for line in json.toString().split '\n'
     y = line.toLowerCase().indexOf query
