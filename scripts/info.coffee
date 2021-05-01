@@ -15,7 +15,7 @@ module.exports = (robot) ->
   robot.respond /(info) (.+)$/i, (msg)  ->
     query = msg.match[2].toLowerCase()
     util.info (body) ->
-      result = parse body, query
+      result = parse body, query, false
       if not result
         msg.send "I could not find a user matching `"+query.toString()+"`"
       else
@@ -48,18 +48,21 @@ module.exports = (robot) ->
           )
 
 
-parse = (json, query) ->
+parse = (json, query, returnSingle) ->
   result = []
   for line in json.toString().split '\n'
     y = line.toLowerCase().indexOf query
     if y != -1
-      result.push line.split(',').map Function.prototype.call, String.prototype.trim
+      if returnSingle
+        return line.split(',').map Function.prototype.call, String.prototype.trim
+      else
+        result.push line.split(',').map Function.prototype.call, String.prototype.trim
   if result != ""
-    result
+    return result
   else
-    false
+    return false
 
 randomColor = () ->
   return '#'+(0x1000000+(Math.random())*0xffffff).toString(16).substr(1,6);
 
-
+module.exports.parse = parse
