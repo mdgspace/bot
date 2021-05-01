@@ -6,7 +6,7 @@
 #   hubot score name : Shows current score of the user
 
 #get search function from info.coffee
-parse = require './info'
+parse = require './util'
 
 module.exports = (robot) ->
 
