@@ -162,3 +162,19 @@ if you're having issues.
 - Build the image using `docker build . -t bot:latest`
 - Add the environment variables in a .env file
 - Create a container to run the image `docker run -d --env-file .env --name bot_cont -p 127.0.0.1:<Port on host>:8080 bot`
+
+## Development setup using Docker
+You can use the `dev_docker-compose.yml` file to spin up containers with Redis services easily.
+Use this env variables for the same.
+```
+REDISURL=redis://redis:6379
+```
+Run this command to run the containers
+```shell
+$ docker-compose -f dev_docker-compose.yml up
+```
+To interact with hubot using shell,
+```shell
+$ docker exec -it mdg-bot bash
+$ ./bin/hubot
+```
