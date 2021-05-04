@@ -1,0 +1,13 @@
+version: '3'
+services:
+  redis:
+    image: redis
+    volumes:
+      - ./data/redis:/data
+  bot:
+    container_name: mdg-bot
+    build: .
+    ports:
+      - 127.0.0.1:9998:8080
+    env_file:
+      - .env
