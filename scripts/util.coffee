@@ -1,4 +1,4 @@
-https = require('follow-redirects').https
+https = require('follow-redirects').http
 
 # Get the user details
 exports.info = (callback) ->

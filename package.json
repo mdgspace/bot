@@ -15,7 +15,7 @@
     "url": "https://github.com/sdsmdg/hubot.git"
   },
   "dependencies": {
-    "follow-redirects": "^1.0.0",
+    "follow-redirects": "1.13.0",
     "hubot": "^2.19.0",
     "hubot-env": "0.0.2",
     "hubot-redis-brain": "0.0.3",
