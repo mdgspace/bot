@@ -5,7 +5,8 @@
 #   INFO_SPREADSHEET_URL
 #
 # Commands:
-#   hubot graph score fxx
+#   hubot graph score fxx -b    for Bar Graph
+#   hubot graph score fxx -p    for Pie Graph
 #
 # Author:
 #   aman-singh7
@@ -29,7 +30,8 @@ module.exports = (robot) ->
         else
             false
 
-    robot.respond /graph score f(\d\d)/i , (msg) ->
+    robot.respond /graph score f(\d\d) (\-)+[bpBP]/i , (msg) ->
+        lastChar = msg.match[0][-1..].toLowerCase()
 
         ScoreField = scorefield()
 
@@ -64,11 +66,17 @@ module.exports = (robot) ->
             for i in [0..slackId.length - 1]
                 user_score[i] = ScoreField[slackId[i]] or 0
             
+            if  lastChar == 'p'
+                graph_type = "pie"
+            else 
+                graph_type = "bar" 
+
             chart = {
-                type: "pie",
+                type: graph_type,
                 data: {
                     labels: user_name,
                     datasets: [{
+                        labels: "Score"
                         data: user_score
                     }]
                 },
