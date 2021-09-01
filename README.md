@@ -167,7 +167,7 @@ if you're having issues.
 You can use the `dev_docker-compose.yml` file to spin up containers with Redis services easily.
 Use this env variables for the same.
 ```
-REDIS_URL=redis://redis:6379
+REDISURL=redis://redis:6379
 ```
 Run this command to run the containers
 ```shell

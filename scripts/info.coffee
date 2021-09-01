@@ -17,9 +17,9 @@ module.exports = (robot) ->
     util.info (body) ->
       result = parse body, query
       if not result
-        msg.send "I could not find a user matching `"+query.toString()+"`"
+        msg.send "I could not find a user matching `" + query.toString() + "`"
       else
-        msg.send result.length+" user(s) found matching `"+query.toString()+"`"
+        msg.send result.length + " user(s) found matching `" + query.toString() + "`"
         for user in result
           msg.send(
             attachments: [
@@ -60,6 +60,6 @@ parse = (json, query) ->
     false
 
 randomColor = () ->
-  return '#'+(0x1000000+(Math.random())*0xffffff).toString(16).substr(1,6);
+  return '#'+(0x1000000+(Math.random())*0xffffff).toString(16).substr(1,6)
 
 
