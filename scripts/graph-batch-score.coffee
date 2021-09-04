@@ -5,6 +5,7 @@
 #   INFO_SPREADSHEET_URL
 #
 # Commands:
+#   hubot graph score fxx       Default(Bar graph)
 #   hubot graph score fxx -b    for Bar Graph
 #   hubot graph score fxx -p    for Pie Graph
 #
@@ -12,14 +13,20 @@
 #   aman-singh7
 
 util = require('./util')
-batchScore = require('./batch-score')
 
 module.exports = (robot) ->
 
-  robot.respond /graph score f(\d\d) (\-)+[bpBP]/i , (msg) ->
-    lastChar = msg.match[0][-1..].toLowerCase()
-        
+  robot.respond /graph score f(\d\d)( \-\w)?/i , (msg) ->
+
     batch = msg.match[1]
+    lastChar = msg.match[2] || '-b'
+    if  lastChar == '-p'
+      graph_type = "pie"
+    else if lastChar == '-b'
+      graph_type = "bar"
+    else
+      return
+
     util.year batch, (year) ->
       util.info (body) ->
         util.parse body, (result) ->
@@ -28,18 +35,13 @@ module.exports = (robot) ->
               user_score = []
               for i in [0..slackId.length - 1]
                 user_score[i] = ScoreField[slackId[i]] or 0
-            
-              if  lastChar == 'p'
-                graph_type = "pie"
-              else
-                graph_type = "bar"
 
               chart = {
                 type: graph_type,
                 data: {
                   labels: user_name,
                   datasets: [{
-                    labels: "Score",
+                    label: "Score",
                     data: user_score
                   }]
                 },
