@@ -55,22 +55,7 @@ module.exports = (robot) ->
                 }
               }
               data = encodeURIComponent(JSON.stringify(chart))
-              reply = {
-                attachments: [
-                  {
-                    color: "#f2c744",
-                    blocks: [
-                      {
-                        type: "image",
-                        title: {
-                          type: "plain-text",
-                          text: "Batch#{batch} score"
-                        },
-                        image_url: "https://quickchart.io/chart?c=#{data}"
-                        alt_text: "Chart showing score of batch#{batch}"
-                      }
-                    ]
-                  }
-                ]
-              }
-              msg.send JSON.stringify(reply)
+              text = "Batch#{batch} score"
+              alt = "Chart showing score of batch#{batch}"
+              util.graph data, text, alt, (reply) ->
+                msg.send JSON.stringify(reply)

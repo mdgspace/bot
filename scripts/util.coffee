@@ -51,3 +51,25 @@ exports.scorefield = (robot, callback) ->
     Field = robot.brain.get("scorefield") or {}
     robot.brain.set("scorefield", Field)
     callback Field
+
+# Graph Attachment
+exports.graph = (enc_url, text, alt_text, callback) ->
+  reply = {
+    attachments: [
+      {
+        color: "#f2c744",
+        blocks: [
+          {
+            type: "image",
+            title: {
+              type: "plain-text",
+              text: text
+            },
+            image_url: "https://quickchart.io/chart?c=#{enc_url}",
+            alt_text: alt_text
+          }
+        ]
+      }
+    ]
+  }
+  callback reply
