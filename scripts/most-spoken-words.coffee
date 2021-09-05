@@ -76,7 +76,7 @@ module.exports = (robot) ->
         msg.send msg.random responses
 
 
-  robot.respond /.*stats/i, (msg) ->
+  robot.respond /stats/i, (msg) ->
     name = msg.message.user.name 
     sender = robot.brain.userForName name
     isSenderInList = false
