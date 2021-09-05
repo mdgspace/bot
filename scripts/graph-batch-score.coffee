@@ -17,12 +17,12 @@ util = require('./util')
 module.exports = (robot) ->
 
   robot.respond /graph score f(\d\d)( \-\w)?/i , (msg) ->
-
+  
     batch = msg.match[1]
-    lastChar = msg.match[2] || '-b'
-    if  lastChar == '-p'
+    lastChar = msg.match[2] || ' -b'
+    if  lastChar == ' -p'
       graph_type = "pie"
-    else if lastChar == '-b'
+    else if lastChar == ' -b'
       graph_type = "bar"
     else
       return
@@ -58,4 +58,4 @@ module.exports = (robot) ->
               text = "Batch#{batch} score"
               alt = "Chart showing score of batch#{batch}"
               util.graph data, text, alt, (reply) ->
-                msg.send JSON.stringify(reply)
+                msg.send reply

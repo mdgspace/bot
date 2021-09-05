@@ -96,4 +96,4 @@ module.exports = (robot) ->
         }
         chart = encodeURIComponent(JSON.stringify(graph))
         util.graph chart, "Detailed Score of #{name}", "Graph Showing Detailed Score", (reply) ->
-            msg.send JSON.stringify(reply)
+            msg.send reply

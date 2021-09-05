@@ -42,4 +42,4 @@ module.exports = (robot) ->
         text = "Message Count"
         alt = "Chart showing message count"
         util.graph data, text, alt, (reply) ->
-            msg.send JSON.stringify(reply)
+            msg.send reply
