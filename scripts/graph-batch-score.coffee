@@ -58,4 +58,4 @@ module.exports = (robot) ->
               text = "Batch#{batch} score"
               alt = "Chart showing score of batch#{batch}"
               util.graph data, text, alt, (reply) ->
-                msg.send reply
+                msg.send attachments: JSON.stringify(reply)
