@@ -20,6 +20,7 @@
 cron = require('node-cron')
 natural = require 'natural'
 tokenizer = new natural.WordTokenizer()
+util = require('./util')
 
 module.exports = (robot) ->
   robot.hear /^(.+)/i, (msg) ->
@@ -76,23 +77,52 @@ module.exports = (robot) ->
         msg.send msg.random responses
 
 
-  robot.respond /stats/i, (msg) ->
-    name = msg.message.user.name 
-    sender = robot.brain.userForName name
-    isSenderInList = false
-    response = "```Name : Message Count\n"
+  robot.respond /stats( \-\w)?/i, (msg) ->
     sorted = listOfUsersWithCount()
-    if sorted.length
-      for user in sorted
-        if sender.name is user[0]
-          isSenderInList = true
-          break
-      sorted = sorted.map (val) -> "#{val[0]} : #{val[1]}"
-      response += sorted.join '\n'
-    response += "```"
-    if not isSenderInList
-      response += "\nCan't find your name?\n" + msg.random responses 
-    msg.send response
+    msg.send "#{msg.match}"
+    if not msg.match[1]?
+      name = msg.message.user.name
+      sender = robot.brain.userForName name
+      isSenderInList = false
+      response = "```Name : Message Count\n"
+      if sorted.length
+        for user in sorted
+          if sender.name is user[0]
+            isSenderInList = true
+            break
+        sorted = sorted.map (val) -> "#{val[0]} : #{val[1]}"
+        response += sorted.join '\n'
+      response += "```"
+      if not isSenderInList
+        response += "\nCan't find your name?\n" + msg.random responses
+      msg.send response
+    else
+      if msg.match[1] == ' -b'
+        name = (val[0] for val in sorted)
+        msgcount = (val[1] for val in sorted)
+        chart = {
+          type: "bar",
+          data: {
+              labels: name,
+              datasets: [{
+                  label: "Message Count",
+                  data: msgcount
+              }]
+          },
+          options: {
+              plugins: {
+                  datalabels: {
+                    display: true,
+                    color: '#fff'
+                  }
+              }
+          }
+        }
+        data = encodeURIComponent(JSON.stringify(chart))
+        text = "Message Count"
+        alt = "Chart showing message count"
+        util.graph data, text, alt, (reply) ->
+          msg.send attachments: JSON.stringify(reply)
 
   #This will run every Saturday at 9 pm
   cron.schedule '0 0 21 * * Saturday', ()->
@@ -112,7 +142,7 @@ module.exports = (robot) ->
   listOfUsersWithCount = () ->
     sorted = []
     for own key, user of robot.brain.data.users
-      if user.msgcount>0
+      if user.msgcount > 0
         sorted.push [user.name, user.msgcount]
     if sorted.length
       sorted.sort (a, b) ->

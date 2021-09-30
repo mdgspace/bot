@@ -10,7 +10,7 @@
 #   hubot score fxx -p -> for pie graph
 #
 # Author:
-#   aseem09
+#   aseem09, aman-singh7
 
 util = require('./util')
 
