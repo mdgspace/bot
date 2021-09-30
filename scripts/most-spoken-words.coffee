@@ -79,7 +79,6 @@ module.exports = (robot) ->
 
   robot.respond /stats( \-\w)?/i, (msg) ->
     sorted = listOfUsersWithCount()
-    msg.send "#{msg.match}"
     if not msg.match[1]?
       name = msg.message.user.name
       sender = robot.brain.userForName name
