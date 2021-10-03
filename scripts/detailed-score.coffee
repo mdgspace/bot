@@ -3,6 +3,7 @@
 
 # Commands:
 #   bot detailed score name
+# 	bot detailed score name -b  (for bar graph)
 
 # Author:
 # 	Pulkit Karira, aman-singh7

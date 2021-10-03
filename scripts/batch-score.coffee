@@ -100,12 +100,12 @@ module.exports = (robot) ->
       result = []
       result = parse body
       member result, year, ([user_name, slackId]) ->
-        user_name = ["```Name", user_name...]
-        slackId = ["Score", slackId...]
         
         user_score = []
 
         if not msg.match[2]?
+          user_name = ["```Name", user_name...]
+          slackId = ["Score", slackId...]
           for i in [1..slackId.length - 1]
             user_score[i] = ScoreField[slackId[i]] or 0
 
