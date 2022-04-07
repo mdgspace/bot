@@ -13,7 +13,8 @@ module.exports = (robot) ->
       # Check if it was called in a room.
       if get_channel(context.response) is '#DM'
         context.response.reply "This won't work here"
-        robot.send room: 'general', "@#{context.response.message.user.name} pls dont DM me. Talk here in public!"
+        # Skipping sending the message to general channel.
+        # robot.send room: 'general', "@#{context.response.message.user.name} pls dont DM me. Talk here in public!"
         # Bypass executing the listener callback
         done()
       else
@@ -25,7 +26,11 @@ module.exports = (robot) ->
     if response.message.room == response.message.user.name
       "@#{response.message.room}"
     else
-      "##{robot.adapter.client.rtm.dataStore.getChannelGroupOrDMById(response.message.room).name}"
+      isDM = response.message.room[0] is 'D'
+      messageType = 'unknown'
+      if isDM
+        messageType = 'DM'
+      "##{messageType}"
 
   # return object to store data for all keywords
   # using this, stores the data in brain's "scorefield" key
