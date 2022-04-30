@@ -5,6 +5,8 @@
 #   name++ or name-- : Adds/subtracts 1 point to/from user's score
 #   hubot score name : Shows current score of the user
 
+util = require('./util')
+
 module.exports = (robot) ->
 
   robot.listenerMiddleware (context, next, done) ->
@@ -36,12 +38,12 @@ module.exports = (robot) ->
   # using this, stores the data in brain's "scorefield" key
   scorefield = () ->
     Field = robot.brain.get("scorefield") or {}
-    robot.brain.set("scorefield",Field)
+    robot.brain.set("scorefield", Field)
     Field
 
-  detailedfield= () ->
+  detailedfield = () ->
     Field = robot.brain.get("detailedfield") or {}
-    robot.brain.set("detailedfield",Field)
+    robot.brain.set("detailedfield", Field)
     Field
   # returns last score
   lastScore = (name, field) ->
@@ -51,27 +53,27 @@ module.exports = (robot) ->
 
   #returns appreciation field associated to a single user
   userFieldMinus = (user) ->
-    Detailedfield= detailedfield()
+    Detailedfield = detailedfield()
     Detailedfield[user] = Detailedfield[user] or {}
     Detailedfield[user]["minus"] = Detailedfield[user]["minus"] or {}
     Detailedfield[user]["minus"]
 
   #returns depreciation field associated to a single user
   userFieldPlus = (user) ->
-    Detailedfield= detailedfield()
+    Detailedfield = detailedfield()
     Detailedfield[user] = Detailedfield[user] or {}
     Detailedfield[user]["plus"] = Detailedfield[user]["plus"] or {}
     Detailedfield[user]["plus"]
 
   #updates detailed field
-  updateDetailedScore = (field , sendername , fieldtype)->
+  updateDetailedScore = (field, sendername, fieldtype) ->
     if(fieldtype == "plus")
-      field[sendername]=field[sendername]+1 or 1
+      field[sendername] = field[sendername] + 1 or 1
     else
-      field[sendername]=field[sendername]+1 or 1
+      field[sendername] = field[sendername] + 1 or 1
 
   # updates score according to ++/--
-  updateScore = (word, field, username) ->
+  updateScore = (word, field, username, slackIds) ->
     posRegex = /\+\+/
     negRegex = /\-\-/
 
@@ -80,22 +82,26 @@ module.exports = (robot) ->
       name = word.replace posRegex, ""
       if username.toLowerCase() == name.toLowerCase()
         response = "-1"
-      else
+      else if field[name]? or doesExist(name, slackIds)
         field[name.toLowerCase()] = lastScore(name, field) + 1
-        userfield= userFieldPlus(name.toLowerCase())
-        updateDetailedScore(userfield,username,"plus")
-        response= responses[Math.floor(Math.random() * 7)]
+        userfield = userFieldPlus(name.toLowerCase())
+        updateDetailedScore(userfield, username, "plus")
+        response = responses[Math.floor(Math.random() * 7)]
+      else
+        response = "0"
 
     # if there is to be `minus` in score
     else if word.indexOf("--") >= 0
       name = word.replace negRegex, ""
       if username.toLowerCase() == name.toLowerCase()
         response = "-1"
-      else
+      else if field[name]? or doesExist(name, slackIds)
         field[name.toLowerCase()] = lastScore(name, field) - 1
-        userfield= userFieldMinus(name.toLowerCase())
-        updateDetailedScore(userfield,username,"minus")
-        response= "ouch!"
+        userfield = userFieldMinus(name.toLowerCase())
+        updateDetailedScore(userfield, username, "minus")
+        response = "ouch!"
+      else
+        response = "0"
 
     newscore = field[name.toLowerCase()]
 
@@ -104,6 +110,31 @@ module.exports = (robot) ->
     Name: name
     Response: response
 
+  getSlackIds = (callback) ->
+    util.info (body) ->
+      slackIds = []
+      for user in parse body
+        if user.length >= 13 and user[10]?
+          slackIds.push user[10]
+      callback slackIds
+
+  parse = (json) ->
+    result = []
+    for line in json.toString().split '\n'
+      result.push line.split(',').map Function.prototype.call,
+      String.prototype.trim
+    if result != ""
+      result
+    else
+      false
+
+  doesExist = (key, list) ->
+    isFound = false
+    for item in list
+      if item == key
+        isFound = true
+        break
+    isFound
 
   # listen for any [word](++/--) in chat and react/update score
   robot.hear /[a-zA-Z0-9\-_]+(\-\-|\+\+)/gi, (msg) ->
@@ -117,27 +148,30 @@ module.exports = (robot) ->
     # index keeping an eye on position, where next replace will be
     start = 0
     end = 0
+    
+    getSlackIds (slackIds) ->
+      # for each ++/--
+      for i in [0...msg.match.length]
+        testword = msg.match[i]
 
-    # for each ++/--
-    for i in [0...msg.match.length]
-      testword = msg.match[i]
-
-      # updates Scoring for words, accordingly and returns result string
-      result = updateScore(testword, ScoreField, msg.message.user.name)
+        # updates Scoring for words, accordingly and returns result string
+        result = updateScore(testword, ScoreField, msg.message.user.name, slackIds)
 
 
-      end = start + testword.length
+        end = start + testword.length
 
-      # generates response message for reply
-      if result.Response == "-1"
-        newmsg = "#{testword} [Sorry, You can't give ++ or -- to yourself.]"
-      else
-        newmsg = "#{testword} [#{result.Response} #{result.Name} now at #{result.New}] "
-      oldmsg = oldmsg.substr(0, start) + newmsg + oldmsg.substr(end+1)
-      start += newmsg.length
+        # generates response message for reply
+        if result.Response == "-1"
+          newmsg = "#{testword} [Sorry, You can't give ++ or -- to yourself.]"
+        else if result.Response == "0"
+          newmsg = "No, such user exist!! "
+        else
+          newmsg = "#{testword} [#{result.Response} #{result.Name} now at #{result.New}] "
+        oldmsg = oldmsg.substr(0, start) + newmsg + oldmsg.substr(end + 1)
+        start += newmsg.length
 
-    # reply with updated message
-    msg.send "#{oldmsg}"
+      # reply with updated message
+      msg.send "#{oldmsg}"
 
 
   # response for score status of any <keyword>
@@ -155,11 +189,14 @@ module.exports = (robot) ->
     name = msg.match[1]
     name = name.toLowerCase()
 
-    # current score for keyword
-    ScoreField[name] = ScoreField[name] or 0
-    currentscore = ScoreField[name]
-
-    msg.send "#{name} : #{currentscore}"
+    # If the key exist
+    if ScoreField[name]?
+      # current score for keyword
+      currentscore = ScoreField[name]
+      msg.send "#{name} : #{currentscore}"
+    
+    else
+      msg.send "#{name}? Never heard of 'em"
 
   robot.on 'plusplus', (event) ->
     ScoreField = scorefield()
