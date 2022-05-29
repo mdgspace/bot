@@ -34,6 +34,12 @@ module.exports = (robot) ->
         messageType = 'DM'
       "##{messageType}"
 
+  # returns list of skipped words
+  skippedlist = () ->
+    List = robot.brain.get("skippedlist") or []
+    robot.brain.set("skippedlist", List)
+    List
+
   # return object to store data for all keywords
   # using this, stores the data in brain's "scorefield" key
   scorefield = () ->
@@ -82,7 +88,7 @@ module.exports = (robot) ->
       name = word.replace posRegex, ""
       if username.toLowerCase() == name.toLowerCase()
         response = "-1"
-      else if field[name]? or doesExist(name, slackIds)
+      else if doesExist(name, slackIds)
         field[name.toLowerCase()] = lastScore(name, field) + 1
         userfield = userFieldPlus(name.toLowerCase())
         updateDetailedScore(userfield, username, "plus")
@@ -95,7 +101,7 @@ module.exports = (robot) ->
       name = word.replace negRegex, ""
       if username.toLowerCase() == name.toLowerCase()
         response = "-1"
-      else if field[name]? or doesExist(name, slackIds)
+      else if doesExist(name, slackIds)
         field[name.toLowerCase()] = lastScore(name, field) - 1
         userfield = userFieldMinus(name.toLowerCase())
         updateDetailedScore(userfield, username, "minus")
@@ -145,6 +151,9 @@ module.exports = (robot) ->
     # data-store object
     ScoreField = scorefield()
 
+    # skipped word list
+    SkippedList = skippedlist()
+
     # index keeping an eye on position, where next replace will be
     start = 0
     end = 0
@@ -154,19 +163,24 @@ module.exports = (robot) ->
       for i in [0...msg.match.length]
         testword = msg.match[i]
 
-        # updates Scoring for words, accordingly and returns result string
-        result = updateScore(testword, ScoreField, msg.message.user.name, slackIds)
-
-
         end = start + testword.length
+        
+        # check if testword is already skipped or it is too lengthy
+        if testword.slice(0, -2) in SkippedList or testword.length > 40
+          newmsg = ""
 
-        # generates response message for reply
-        if result.Response == "-1"
-          newmsg = "#{testword} [Sorry, You can't give ++ or -- to yourself.]"
-        else if result.Response == "0"
-          newmsg = "No, such user exist!! "
         else
-          newmsg = "#{testword} [#{result.Response} #{result.Name} now at #{result.New}] "
+          # updates Scoring for words, accordingly and returns result string
+          result = updateScore(testword, ScoreField, msg.message.user.name, slackIds)
+
+          # generates response message for reply
+          if result.Response == "-1"
+            newmsg = "#{testword} [Sorry, You can't give ++ or -- to yourself.]"
+          else if result.Response == "0"
+            newmsg = "#{result.Name}? Never heard of 'em "
+          else
+            newmsg = "#{testword} [#{result.Response} #{result.Name} now at #{result.New}] "
+
         oldmsg = oldmsg.substr(0, start) + newmsg + oldmsg.substr(end + 1)
         start += newmsg.length
 
