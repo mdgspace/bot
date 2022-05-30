@@ -88,7 +88,7 @@ module.exports = (robot) ->
       name = word.replace posRegex, ""
       if username.toLowerCase() == name.toLowerCase()
         response = "-1"
-      else if doesExist(name, slackIds)
+      else if name in slackIds
         field[name.toLowerCase()] = lastScore(name, field) + 1
         userfield = userFieldPlus(name.toLowerCase())
         updateDetailedScore(userfield, username, "plus")
@@ -101,7 +101,7 @@ module.exports = (robot) ->
       name = word.replace negRegex, ""
       if username.toLowerCase() == name.toLowerCase()
         response = "-1"
-      else if doesExist(name, slackIds)
+      else if name in slackIds
         field[name.toLowerCase()] = lastScore(name, field) - 1
         userfield = userFieldMinus(name.toLowerCase())
         updateDetailedScore(userfield, username, "minus")
@@ -134,14 +134,6 @@ module.exports = (robot) ->
     else
       false
 
-  doesExist = (key, list) ->
-    isFound = false
-    for item in list
-      if item == key
-        isFound = true
-        break
-    isFound
-
   # listen for any [word](++/--) in chat and react/update score
   robot.hear /[a-zA-Z0-9\-_]+(\-\-|\+\+)/gi, (msg) ->
 
@@ -157,6 +149,10 @@ module.exports = (robot) ->
     # index keeping an eye on position, where next replace will be
     start = 0
     end = 0
+
+    # reply only when there exist altest one testword which
+    # is neither skipped nor its length greater than 30
+    reply = false
     
     getSlackIds (slackIds) ->
       # for each ++/--
@@ -166,10 +162,11 @@ module.exports = (robot) ->
         end = start + testword.length
         
         # check if testword is already skipped or it is too lengthy
-        if testword.slice(0, -2) in SkippedList or testword.length > 40
+        if testword.slice(0, -2) in SkippedList or testword.length > 30
           newmsg = ""
 
         else
+          reply = true
           # updates Scoring for words, accordingly and returns result string
           result = updateScore(testword, ScoreField, msg.message.user.name, slackIds)
 
@@ -184,8 +181,9 @@ module.exports = (robot) ->
         oldmsg = oldmsg.substr(0, start) + newmsg + oldmsg.substr(end + 1)
         start += newmsg.length
 
-      # reply with updated message
-      msg.send "#{oldmsg}"
+      if reply
+        # reply with updated message
+        msg.send "#{oldmsg}"
 
 
   # response for score status of any <keyword>
