@@ -178,3 +178,13 @@ To interact with hubot using shell,
 $ docker exec -it mdg-bot bash
 $ ./bin/hubot
 ```
+
+## Starting Bot using redis and node on Ubuntu
+You need live [redis-server](https://www.digitalocean.com/community/tutorials/how-to-install-and-secure-redis-on-ubuntu-18-04) and [nvm](https://tecadmin.net/how-to-install-nvm-on-ubuntu-20-04/) installed on your system 
+
+Move into 'bot' directory (after cloning)
+
+Run following command
+```shell
+$ npm install
+$ ./start_bot.sh

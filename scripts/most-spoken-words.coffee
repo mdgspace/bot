@@ -26,6 +26,7 @@ module.exports = (robot) ->
   robot.hear /^(.+)/i, (msg) ->
     if msg.match[0].toLowerCase().startsWith robot.name.toLowerCase()
       return
+      
     words = tokenizer.tokenize msg.match[0]
     pronouns = ['i', 'he', 'she', 'it',  'we', 
                 'me', 'mine', 'his', 'her', 'something', 
