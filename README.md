@@ -179,12 +179,23 @@ $ docker exec -it mdg-bot bash
 $ ./bin/hubot
 ```
 
-## Starting Bot using redis and node on Ubuntu
+## Starting Bot using redis and node on Ubuntu (If you don't want to use Docker) 
+### Hot Reload feature available
 You need live [redis-server](https://www.digitalocean.com/community/tutorials/how-to-install-and-secure-redis-on-ubuntu-18-04) and [nvm](https://tecadmin.net/how-to-install-nvm-on-ubuntu-20-04/) installed on your system 
 
-Move into 'bot' directory (after cloning)
+- Move into 'bot' directory (after cloning)
 
+- Create a .env file containing environment variables (will be given by your mentor)
+
+Use this env variables for the same.
+```
+REDIS_URL=redis://localhost:6379
+```
 Run following command
 ```shell
 $ npm install
+```
+then
+```shell
 $ ./start_bot.sh
+```
