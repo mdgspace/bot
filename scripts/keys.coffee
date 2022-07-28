@@ -133,17 +133,22 @@ module.exports = (robot)->
 		catch e
 			console.log e
 
-	robot.respond /who (has|have) (.+) ('s key|'s keys)/i , (msg)->
+	robot.respond /who (has|have) (.+'s) (key|keys)/i , (msg)->
 		ownerName = msg.match[2];
+		ownerName =ownerName.substr 0,ownerName.length-2
 		users = robot.brain.usersForFuzzyName ownerName
 		s = ""
 		try
 			kh = key()
 			if users.length is 1
+				s=""
 				for x in kh
 					if x.owner is users[0].name
 						s = "#{x.owner} keys are with #{x.holder}"
-				msg.send s
+				if s is ""
+					msg.send "Ah! Nobody informed me about the keys."
+				else
+					msg.send s
 			else if users.length > 1
 				msg.send getAmbiguousUserText users
 			else
