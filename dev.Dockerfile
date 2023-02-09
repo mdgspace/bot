@@ -20,8 +20,6 @@ ENV PORT "8080"
 # Add user
 RUN useradd hubot -m
 COPY . /home/hubot
-RUN rm /home/hubot/external-scripts.json
-
 # Make sure that the files have the right owner and group.
 RUN chown -R hubot:hubot /home/hubot
 
