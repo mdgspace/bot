@@ -105,7 +105,7 @@ module.exports = (robot) ->
         field[name.toLowerCase()] = lastScore(name, field) - 1
         userfield = userFieldMinus(name.toLowerCase())
         updateDetailedScore(userfield, username, "minus")
-        response = "ouch!"
+        response = "Ouch!"
       else
         response = "0"
 
@@ -153,6 +153,7 @@ module.exports = (robot) ->
     # reply only when there exist altest one testword which
     # is neither skipped nor its length greater than 30
     reply = false
+    finalnewmsg = ""
     
     getSlackIds (slackIds) ->
       # for each ++/--
@@ -176,14 +177,14 @@ module.exports = (robot) ->
           else if result.Response == "0"
             newmsg = "#{result.Name}? Never heard of 'em "
           else
-            newmsg = "#{testword} [#{result.Response} #{result.Name} now at #{result.New}] "
+            newmsg = "#{testword} [#{result.Response} You're now at #{result.New}] "
 
-        oldmsg = oldmsg.substr(0, start) + newmsg + oldmsg.substr(end + 1)
-        start += newmsg.length
+        oldmsg = oldmsg.substr(0, start) + oldmsg.substr(end + 1)
+        finalnewmsg += newmsg + "\n"
 
       if reply
         # reply with updated message
-        msg.send "#{oldmsg}"
+        msg.send "#{finalnewmsg}"
 
 
   # response for score status of any <keyword>
@@ -212,16 +213,16 @@ module.exports = (robot) ->
 
   robot.on 'plusplus', (event) ->
     ScoreField = scorefield()
-    result = updateScore("#{event.username}++", ScoreField, "Shell", [event.username])
-    newmsg = "#{event.username}++ [#{result.Response} #{result.Name} now at #{result.New}]"
+    result = updateScore("#{event.username}++", ScoreField, "MostWordsBot", [event.username])
+    newmsg = "#{event.username}++ [#{result.Response} You're now at #{result.New}]"
     robot.send room: 'general', newmsg
 
 responses = [
-  'flamboyant!'
-  'baroque!'
-  'impressive!'
-  'lustrous!'
-  'splashy!'
-  'superb!'
-  'splendid!'
+  'Flamboyant!'
+  'Baroque!'
+  'Impressive!'
+  'Lustrous!'
+  'Splashy!'
+  'Superb!'
+  'Splendid!'
 ]
