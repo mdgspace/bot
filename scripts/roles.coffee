@@ -76,8 +76,9 @@ module.exports = (robot) ->
       if users.length is 1
         user = users[0]
         user.roles = user.roles or [ ]
-
-        if newRole not in user.roles
+        if msg.envelope.user.name == user.name
+          msg.send "Nice try, dumbass!"
+        else if newRole not in user.roles
           msg.send "I know."
         else
           user.roles = (role for role in user.roles when role isnt newRole)

@@ -6,7 +6,9 @@ services:
       - ./data/redis:/data
   bot:
     container_name: mdg-bot
-    build: .
+    build:
+      context: .
+      dockerfile: dev.Dockerfile
     ports:
       - 127.0.0.1:9998:8080
     env_file:
