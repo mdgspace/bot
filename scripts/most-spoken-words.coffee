@@ -128,13 +128,34 @@ module.exports = (robot) ->
   #This will run every Saturday at 9 pm
   cron.schedule '0 0 21 * * Saturday', ()->
     sorted = listOfUsersWithCount()
-    name = sorted[0][0]
-    currMsgRecord = sorted[0][1]
-    msg = "This week's top poster is @#{name}"
-    msg += " with #{currMsgRecord} messages"
-    robot.send room: 'general', msg
-    if currMsgRecord >= 50
-      robot.emit "plusplus", {username: name}
+
+    if sorted.length > 0
+      # Top poster announcement
+      name = sorted[0][0]
+      currMsgRecord = sorted[0][1]
+      msg = "This week's top poster is @#{name} with #{currMsgRecord} messages\n\n"
+      
+      # Full leaderboard (only active users)
+      msg += "**Weekly Message Stats:**\n```"
+
+      for user, i in sorted
+        username = user[0]
+        count = user[1]
+        rank = i + 1
+        msg += "\n#{rank}. #{username} : #{count} messages"
+
+      msg += "\n```"
+
+      robot.send room: 'general', msg
+
+      # Optional reward
+      if currMsgRecord >= 50
+        robot.emit "plusplus", {username: name}
+
+    else
+      robot.send room: 'general', "No messages this week!"
+
+    # Reset counts
     for own key, user of robot.brain.data.users
       if user.msgcount>0
         user.msgcount = 0
