@@ -15,7 +15,10 @@
     "url": "https://github.com/sdsmdg/hubot.git"
   },
   "dependencies": {
+    "@slack/bolt": "^5.1.0",
+    "@types/express": "^5.0.6",
     "@types/node": "^24.0.0",
+    "express": "^5.2.1",
     "follow-redirects": "^1.0.0",
     "htmlparser": "1.7.7",
     "hubot": "^14.1.0",
@@ -27,8 +30,10 @@
     "natural": "^0.5.0",
     "node-cron": "^1.1.2",
     "node-time-ago": "^1.0.0",
+    "redis": "^6.2.1",
     "soupselect": "^0.2.0",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "undici": "^7.0.0"
   },
   "engines": {
     "node": ">=24 <25",
