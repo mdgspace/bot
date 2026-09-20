@@ -21,7 +21,7 @@ function clean(thing: string | undefined | false): string {
 }
 
 function isPm(msg: Response): boolean {
-  return !!msg.message.user.pm;
+  return msg.message.channel?.is_im ?? !!msg.message.user.pm;
 }
 
 function ircname(msg: Response): string {

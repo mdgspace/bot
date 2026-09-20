@@ -159,6 +159,7 @@ export class BrainPersistence {
         try {
           if (this.loaded) await this.enqueueSave();
         } finally {
+          await this.writes;
           await this.storage.close();
         }
       })();

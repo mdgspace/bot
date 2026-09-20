@@ -6,12 +6,9 @@
 
 import type { Robot } from "./runtime/types";
 
-import * as https from "https";
-
-const token = process.env.SLACK_API_TOKEN;
-
 export = (robot: Robot): void => {
-  if (!token) {
+  const slack = robot.slack;
+  if (!slack) {
     return;
   }
 
@@ -31,51 +28,22 @@ export = (robot: Robot): void => {
     }
   };
 
-  const updateName = (uid: string, run: UpdateRun): void => {
-    const pre = "/api/users.info?token=";
-    const post = "&user=";
-    const url = pre + encodeURIComponent(token) + post + encodeURIComponent(uid);
-    let output = "";
-    let complete = false;
-    const completeUser = (): void => {
-      if (complete) {
-        return;
+  const updateName = async (uid: string, run: UpdateRun): Promise<void> => {
+    try {
+      const data = await slack.userInfo(uid);
+      if (data.name) {
+        const user = robot.brain.userForId(data.id);
+        if (user.name !== data.name) {
+          user.name = data.name;
+          run.updatedUsers++;
+        }
       }
-      complete = true;
+    } catch (error) {
+      robot.logger.warning(`update-names: request failed for ${uid}: ${error}`);
+    } finally {
       run.parsedUsers++;
       reportIfComplete(run);
-    };
-    const request = https.get({ host: "slack.com", path: url }, (res) => {
-      res.on("data", (chunk) => {
-        output += chunk;
-      });
-      res.on("end", () => {
-        try {
-          if (res.statusCode != null && res.statusCode >= 400) {
-            throw new Error(`Slack returned HTTP ${res.statusCode}`);
-          }
-          const data = JSON.parse("" + output);
-          if (data.ok) {
-            const user = robot.brain.userForId(data.user.id);
-            if (user.name !== data.user.name) {
-              user.name = data.user.name;
-              run.updatedUsers++;
-            }
-          }
-        } catch (e) {
-          robot.logger.warning(`update-names: bad response for ${uid}: ${e}`);
-        }
-        completeUser();
-      });
-      res.on("error", (error) => {
-        robot.logger.warning(`update-names: response failed for ${uid}: ${error}`);
-        completeUser();
-      });
-    });
-    request.on("error", (error) => {
-      robot.logger.warning(`update-names: request failed for ${uid}: ${error}`);
-      completeUser();
-    });
+    }
   };
 
   robot.respond(/update db/i, (msg) => {
@@ -91,7 +59,7 @@ export = (robot: Robot): void => {
       return;
     }
     for (const key of Object.keys(robot.brain.data.users)) {
-      updateName(robot.brain.data.users[key].id, run);
+      void updateName(robot.brain.data.users[key].id, run);
     }
   });
 };

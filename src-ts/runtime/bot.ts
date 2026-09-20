@@ -28,6 +28,7 @@ interface Listener {
 
 export class TextMessage implements Message {
   done = false;
+  channel?: Message["channel"];
   constructor(
     public user: User,
     public text: string,
@@ -47,6 +48,7 @@ export interface BotOptions {
   router: Router;
   logger: Logger;
   transport: Transport;
+  slack?: Robot["slack"];
   http?: (url: string) => HttpClient;
 }
 
@@ -109,6 +111,7 @@ export class Bot extends EventEmitter implements Robot {
   readonly brain: Brain;
   readonly router: Router;
   readonly logger: Logger;
+  readonly slack?: Robot["slack"];
   private readonly commandListeners: Listener[] = [];
   private readonly receivers: Middleware<ReceiveContext>[] = [];
   private readonly listenerMiddlewareCallbacks: Middleware<ListenerContext>[] =
@@ -124,6 +127,7 @@ export class Bot extends EventEmitter implements Robot {
     this.brain = options.brain;
     this.router = options.router;
     this.logger = options.logger;
+    this.slack = options.slack;
     this.on("error", (error) => this.logger.error(error));
   }
 

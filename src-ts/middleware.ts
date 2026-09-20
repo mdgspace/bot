@@ -20,6 +20,7 @@ export = (robot: Robot): void => {
     if (msg.user.id !== "USLACKBOT") {
       // Check if this message was sent in a private channel
       if (
+        msg.channel?.is_private ||
         msg.message?.channel?.is_private ||
         msg.rawMessage?.channel?.is_private
       ) {
@@ -27,7 +28,7 @@ export = (robot: Robot): void => {
         // robot.send room: 'general', "@#{msg.user.name} stop sending me messages in private channel. Talk here in public!"
         end(msg, done);
         // or a DM
-      } else if (msg.rawMessage?.channel?.is_im) {
+      } else if (msg.channel?.is_im || msg.rawMessage?.channel?.is_im) {
         // Skipping sending the message to general channel.
         // robot.send room: 'general', "@#{msg.user.name} pls dont DM me. Talk here in public!"
         end(msg, done);

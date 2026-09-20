@@ -43,7 +43,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node test/migration-regressions.js && node test/launcher-regressions.js && node --test test/runtime-regressions.js",
+    "test": "npm run build && node test/migration-regressions.js && node test/launcher-regressions.js && node --test test/runtime-regressions.js test/bolt-regressions.js",
     "check": "npm run typecheck && npm test",
     "heroku-postbuild": "npm run build",
     "start": "./bin/hubot -n ${HUBOT_NAME:-bot} -a slack",

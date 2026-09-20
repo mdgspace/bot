@@ -134,6 +134,7 @@ export interface Robot {
   brain: Brain;
   logger: Logger;
   router: Router;
+  slack?: { userInfo(id: string): Promise<{ id: string; name?: string }> };
   respond(regex: RegExp, callback: (response: Response) => void): void;
   hear(regex: RegExp, callback: (response: Response) => void): void;
   on(event: string, callback: (...args: any[]) => void): void;
