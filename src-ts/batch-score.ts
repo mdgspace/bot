@@ -9,7 +9,7 @@
 //   hubot score fxx -b -> for bar graph
 //   hubot score fxx -p -> for pie graph
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 
 import { graph, info } from "./util";
 

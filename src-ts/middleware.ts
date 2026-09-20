@@ -4,7 +4,7 @@
 // Configuration:
 //   https://github.com/github/hubot/blob/master/docs/scripting.md#middleware
 
-import { Robot, Message } from "hubot";
+import type { Robot, Message } from "./runtime/types";
 
 function end(msg: Message, done: () => void): void {
   // Don't process this message further.

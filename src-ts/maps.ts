@@ -4,7 +4,7 @@
 // Commands:
 //   hubot map me <query> - Returns a map view of the area returned by `query`.
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 
 export = (robot: Robot): void => {
   robot.respond(/(?:(satellite|terrain|hybrid)[- ])?map me (.+)/i, (msg) => {

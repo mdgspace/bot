@@ -7,7 +7,7 @@
 //   hubot unskip word
 //   hubot show skipped
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 
 export = (robot: Robot): void => {
   // returns list of skipped words

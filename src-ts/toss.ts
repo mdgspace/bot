@@ -6,7 +6,7 @@
 //   hubot roll dice
 //   hubot roll n dices
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 
 export = (robot: Robot): void => {
   const toss = [":head:\nHeads", ":tail:\nTails"];

@@ -8,7 +8,7 @@
 // Commands:
 //   hubot info <partial name> - Get information about a person
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 
 import moment from "moment";
 import { info } from "./util";

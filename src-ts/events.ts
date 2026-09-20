@@ -7,7 +7,7 @@
 // Events:
 //   debug - {user: <user object to send message to>}
 
-import { Robot, User } from "hubot";
+import type { Robot, User } from "./runtime/types";
 import * as util from "util";
 
 export = (robot: Robot): void => {

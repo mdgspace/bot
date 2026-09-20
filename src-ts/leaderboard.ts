@@ -5,7 +5,7 @@
 //   name++ or name-- : Adds/subtracts 1 point to/from user's score
 //   hubot score name : Shows current score of the user
 
-import { Robot, Response } from "hubot";
+import type { Robot, Response } from "./runtime/types";
 
 import { info } from "./util";
 

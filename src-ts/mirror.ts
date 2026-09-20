@@ -4,7 +4,7 @@
 //   1) Adds new week column in the sheet every Sunday 9 pm.
 //   2) Reminds those who have not filled the sheet every Tuesday and Friday at 6 am.
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 
 import { https } from "follow-redirects";
 import * as cron from "node-cron";

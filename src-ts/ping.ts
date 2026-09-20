@@ -7,7 +7,7 @@
 //   hubot time - Reply with current time
 //   hubot die - End hubot process
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 
 export = (robot: Robot): void => {
   robot.respond(/PING$/i, (msg) => {

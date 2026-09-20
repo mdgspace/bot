@@ -5,7 +5,7 @@
 //   bot detailed score name
 //   bot detailed score name -b  (for bar graph)
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 
 import { graph } from "./util";
 

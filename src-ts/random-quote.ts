@@ -11,7 +11,7 @@
 // Commands:
 //   random quote
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 
 import { select } from "soupselect";
 import * as htmlparser from "htmlparser";

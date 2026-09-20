@@ -10,7 +10,7 @@
 // Commands:
 //   None
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 
 const setTime = parseFloat(process.env.IDLE_TIME_DURATION_HOURS || "0");
 let i: ReturnType<typeof setInterval> | undefined;

@@ -5,7 +5,7 @@
 //   bot is lab open/close
 //   bot lab is open/close
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 
 export = (robot: Robot): void => {
   let status = "";

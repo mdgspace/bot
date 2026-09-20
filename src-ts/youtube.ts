@@ -9,7 +9,7 @@
 // Commands:
 //   hubot youtube me <query> - Searches YouTube for the query and returns the video embed link.
 
-import { Robot, Response } from "hubot";
+import type { Robot, Response } from "./runtime/types";
 
 interface YoutubeSearchItem {
   id?: { videoId?: string };

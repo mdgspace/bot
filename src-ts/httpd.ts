@@ -17,7 +17,7 @@
 //   /hubot/info
 //   /hubot/ip
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 
 import { spawn } from "child_process";
 import { info } from "./util";

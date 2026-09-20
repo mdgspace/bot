@@ -5,7 +5,7 @@
 //   hubot translate me <phrase> - Searches for a translation for the <phrase> and then prints that bad boy out.
 //   hubot translate me from <source> into <target> <phrase> - Translates <phrase> from <source> into <target>. Both <source> and <target> are optional
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 
 const API_KEY = process.env.HUBOT_GOOGLE_TRANSLATE_API_KEY;
 

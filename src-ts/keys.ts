@@ -16,7 +16,7 @@
 //   :bot who has keys
 //   :bot ravi has keys
 
-import { Robot, User } from "hubot";
+import type { Robot, User } from "./runtime/types";
 
 interface KeyEntry {
   holder: string;

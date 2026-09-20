@@ -8,7 +8,7 @@
 // Configuration:
 //   HUBOT_SEEN_TIMEAGO - If set to `false` (defaults to `true`), last seen times will be absolute dates instead of relative
 
-import { Robot, Response } from "hubot";
+import type { Robot, Response } from "./runtime/types";
 
 import timeago from "node-time-ago";
 
@@ -87,11 +87,7 @@ export = (robot: Robot): void => {
   // Keep track of last msg heard
   robot.hear(/.*/, (msg) => {
     if (!isPm(msg)) {
-      seen.add(
-        clean(ircname(msg)),
-        ircchan(msg) || "",
-        msg.message.text || "",
-      );
+      seen.add(clean(ircname(msg)), ircchan(msg) || "", msg.message.text || "");
     }
   });
 

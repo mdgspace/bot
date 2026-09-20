@@ -10,7 +10,7 @@
 // Commands:
 //   good night
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 
 const waysToSayGoodNight = [
   "Good night, baby.",

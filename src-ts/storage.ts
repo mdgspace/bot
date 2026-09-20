@@ -5,7 +5,7 @@
 //   hubot show users - Display all users that hubot knows about
 //   hubot show storage - Display the contents that are persisted in the brain
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 import * as Util from "util";
 
 export = (robot: Robot): void => {

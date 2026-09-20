@@ -4,7 +4,7 @@
 // Commands:
 //   hubot update db
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 
 import * as https from "https";
 

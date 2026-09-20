@@ -11,7 +11,7 @@
 //   hubot pug me - Receive a pug
 //   hubot pug bomb N - get N pugs
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 
 export = (robot: Robot): void => {
   robot.respond(/pug me/i, (msg) => {
