@@ -10,10 +10,11 @@
 //   hubot env load --filename=[filename] --dry-run - Shows a file without applying it
 //   hubot env load --filename=[filename] - Loads a file into the environment and memory
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { resolve, relative, isAbsolute, sep } from "node:path";
 import { inspect } from "node:util";
 import type { Brain, Logger, Robot } from "./runtime/types";
+import { adminGuard } from "./runtime/admin";
 
 const BRAIN_KEY = "hubot-env";
 const ALWAYS_HIDDEN = new Set([
@@ -29,7 +30,10 @@ const SENSITIVE_KEY_PARTS = [
   "api_key",
   "private_key",
   "credential",
+  "key", "url", "auth", "pass",
 ];
+
+const PROTECTED_KEYS = new Set(["BOT_ADMIN_IDS", "HUBOT_ENV_BASE_PATH", "NODE_OPTIONS", "NODE_PATH"]);
 
 interface PersistedEnvironment {
   env: Record<string, string>;
@@ -65,6 +69,7 @@ export function restorePersistedEnvironment(brain: Brain, logger: Logger): numbe
   if (!stored) return 0;
   let restored = 0;
   for (const [key, value] of Object.entries(stored.env)) {
+    if (PROTECTED_KEYS.has(key.toUpperCase())) continue;
     if (typeof value !== "string") {
       logger.warning(`Ignoring non-string persisted environment value: ${key}`);
       continue;
@@ -102,7 +107,10 @@ function filePreview(contents: string): string {
 }
 
 export function registerEnvironmentCommands(robot: Robot): void {
+  const allowed = adminGuard();
+  const basePath = process.env.HUBOT_ENV_BASE_PATH;
   robot.respond(/env current($| --prefix=)(.*)$/i, (msg) => {
+    if (!allowed(msg)) return;
     const prefix = msg.match[2].trim().toLowerCase();
     const values = Object.entries(process.env)
       .filter(([key]) => key.toLowerCase().startsWith(prefix))
@@ -111,12 +119,13 @@ export function registerEnvironmentCommands(robot: Robot): void {
   });
 
   robot.respond(/env file$/i, (msg) => {
-    const basePath = process.env.HUBOT_ENV_BASE_PATH || "";
-    const files = existsSync(basePath) ? readdirSync(basePath) : [];
+    if (!allowed(msg)) return;
+    const files = basePath && existsSync(basePath) ? readdirSync(basePath) : [];
     msg.send(files.join("\n") || "[None]");
   });
 
   robot.respond(/env flush all(.*)$/i, (msg) => {
+    if (!allowed(msg)) return;
     const stored = storedEnvironment(robot.brain);
     if (!stored) {
       msg.send("Flush nothing against empty data in redis");
@@ -131,12 +140,13 @@ export function registerEnvironmentCommands(robot: Robot): void {
       msg.send(`Complete dry-run: loadedData=${inspect(redacted, false, null)}`);
       return;
     }
-    for (const key of Object.keys(stored.env)) delete process.env[key];
+    for (const key of Object.keys(stored.env)) if (!PROTECTED_KEYS.has(key.toUpperCase())) delete process.env[key];
     robot.brain.set(BRAIN_KEY, null);
     msg.send("Complete flushing all");
   });
 
   robot.respond(/env load(.*)$/i, (msg) => {
+    if (!allowed(msg)) return;
     const args = msg.match[1];
     const dryRun = /--dry-run/.test(args);
     const filename = /--filename=(.*?)( |$)/.exec(args)?.[1];
@@ -144,9 +154,17 @@ export function registerEnvironmentCommands(robot: Robot): void {
       msg.send("Error: Empty filename is invalid");
       return;
     }
-    const filePath = resolve(process.env.HUBOT_ENV_BASE_PATH || "", filename);
-    if (!existsSync(filePath)) {
-      msg.send(`Error: Not Found ${filePath}`);
+    let filePath: string;
+    try {
+      if (!basePath) throw new Error("No environment directory configured");
+      const base = realpathSync(basePath);
+      // Resolve symlinks as well as ../, including Windows absolute/UNC paths.
+      filePath = realpathSync(resolve(base, filename));
+      const local = relative(base, filePath);
+      if (!local || isAbsolute(local) || local === ".." || local.startsWith(`..${sep}`) || !statSync(filePath).isFile())
+        throw new Error("Path outside environment directory");
+    } catch {
+      msg.send("Error: Environment file must be a regular file inside HUBOT_ENV_BASE_PATH.");
       return;
     }
     msg.send(`Loading env --filename=${filename}, --dry-run=${dryRun}...`);
@@ -159,6 +177,7 @@ export function registerEnvironmentCommands(robot: Robot): void {
 
     const previous = { ...process.env };
     const parsed = parseEnvironmentFile(contents);
+    for (const key of Object.keys(parsed)) if (PROTECTED_KEYS.has(key.toUpperCase())) delete parsed[key];
     for (const [key, value] of Object.entries(parsed)) process.env[key] = value;
     const changed = Object.entries(parsed).filter(
       ([key, value]) => key !== "ENV_FILE" && previous[key] !== value,

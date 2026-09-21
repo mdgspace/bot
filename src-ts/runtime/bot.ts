@@ -117,7 +117,7 @@ export class Bot extends EventEmitter implements Robot {
   private readonly listenerMiddlewareCallbacks: Middleware<ListenerContext>[] =
     [];
   private readonly commands: string[] = [];
-  private outgoing: Promise<void> = Promise.resolve();
+  private outgoing = new Map<string, Promise<void>>();
 
   constructor(private readonly options: BotOptions) {
     super();
@@ -145,7 +145,7 @@ export class Bot extends EventEmitter implements Robot {
       .map(escapeRegex);
     this.hear(
       new RegExp(
-        `^\\s*@?(?:${names.join("|")})[:,]?\\s*(?:${regex.source})`,
+        `^\\s*@?(?:${names.join("|")})[:,]?\\s*(?:${regex.source.replace(/^\^/, "")})`,
         regex.flags,
       ),
       callback,
@@ -217,19 +217,17 @@ export class Bot extends EventEmitter implements Robot {
           ? { room: target.room, id: target.id, user: target as User }
           : { ...target };
     // Most scripts don't await sends. Keep ordering and handle rejected sends here.
-    this.outgoing = this.outgoing
+    const key = envelope.room || envelope.id || "";
+    const task = (this.outgoing.get(key) ?? Promise.resolve())
       .then(() => this.options.transport.deliver(method, envelope, messages))
       .catch((error) => {
         this.emit("error", error);
-      });
+      }).finally(() => { if (this.outgoing.get(key) === task) this.outgoing.delete(key); });
+    this.outgoing.set(key, task);
   }
 
   async flush(): Promise<void> {
-    let pending: Promise<void>;
-    do {
-      pending = this.outgoing;
-      await pending;
-    } while (pending !== this.outgoing);
+    while (this.outgoing.size) await Promise.all(this.outgoing.values());
   }
 
   http(url: string): HttpClient {

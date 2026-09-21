@@ -8,8 +8,10 @@
 //   hubot die - End hubot process
 
 import type { Robot } from "./runtime/types";
+import { adminGuard } from "./runtime/admin";
 
 export = (robot: Robot): void => {
+  const allowed = adminGuard();
   robot.respond(/PING$/i, (msg) => {
     msg.send("PONG");
   });
@@ -27,7 +29,8 @@ export = (robot: Robot): void => {
   });
 
   robot.respond(/DIE$/i, (msg) => {
+    if (!allowed(msg)) return;
     msg.send("Goodbye, cruel world.");
-    process.exit(0);
+    robot.emit("shutdown");
   });
 };

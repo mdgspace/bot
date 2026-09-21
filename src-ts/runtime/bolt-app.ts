@@ -6,6 +6,8 @@ import { Brain, BrainPersistence } from "./brain";
 import { createRedisStorage, type BotStorage } from "./redis-storage";
 import { slackApi, type SlackApi, type SlackIdentity } from "./slack-api";
 import { SlackDirectory, SlackEvents, SlackTransport } from "./slack-adapter";
+import { inboxEvent, InboxWorker } from "./event-inbox";
+import type { Logger } from "./types";
 
 export interface BoltConfig {
   token: string;
@@ -36,7 +38,7 @@ export interface BoltBotOptions {
   register(bot: Bot): void | Promise<void>;
   // Called after loading memory but before importing/registering scripts. The
   // entrypoint can restore persisted environment configuration here.
-  beforeScripts?(brain: Brain): void | Promise<void>;
+  beforeScripts?(brain: Brain, logger: Logger): void | Promise<void>;
   env?: NodeJS.ProcessEnv;
   api?: SlackApi;
   storage?: BotStorage;
@@ -58,9 +60,8 @@ export function createBoltBot(options: BoltBotOptions) {
     signingSecret: config.signingSecret,
     endpoints: "/slack/events",
     signatureVerification: true,
-    // Hold the automatic Events API acknowledgement until the listener has
-    // completed. If preprocessing or the Redis claim fails, the receiver can
-    // still return a non-2xx response and Slack will retry the event.
+    // Listeners only persist an inbox entry. Slow API calls and scripts run
+    // in the worker after this write, outside Slack's acknowledgement deadline.
     processBeforeResponse: true,
   });
   let identity: SlackIdentity | undefined;
@@ -71,8 +72,8 @@ export function createBoltBot(options: BoltBotOptions) {
     logLevel: LogLevel.INFO,
     // Custom authorization avoids an auth.test call in Bolt's constructor and
     // confines this installation to the workspace authenticated at startup.
-    authorize: async ({ teamId }) => {
-      if (!identity || teamId !== identity.teamId) throw new Error("Slack workspace is not authorized");
+    authorize: async () => {
+      if (!identity) throw new Error("Slack identity is not ready");
       return { botToken: config.token, botId: identity.botId, botUserId: identity.botUserId, teamId: identity.teamId };
     },
   });
@@ -95,17 +96,39 @@ export function createBoltBot(options: BoltBotOptions) {
     },
   });
   let events: SlackEvents | undefined;
+  let worker: InboxWorker | undefined;
   let initialization: Promise<void> | undefined;
   let stopping: Promise<void> | undefined;
   let listening = false;
   let starting = false;
   let serverStart: Promise<import("node:http").Server> | undefined;
 
-  app.event("message", async ({ event, body }) => { await events?.receive(body.team_id ?? "", event); });
-  app.event("app_mention", async ({ event, body }) => { await events?.receive(body.team_id ?? "", event); });
-  app.event("user_change", async ({ event }) => {
-    if (event.user.id) directory.updateUser({ ...event.user, id: event.user.id });
+  app.use(async ({ body, next }) => {
+    // A shared-channel event can have another origin team. Trust the signed
+    // installation authorization, not the sender's workspace. Unrelated events
+    // are acknowledged without dispatching or mutating the brain.
+    if (!identity) return;
+    const envelope = body as { team_id?: string; authorizations?: Array<{ team_id?: string; user_id?: string; is_bot?: boolean }> };
+    const allowed = envelope.authorizations?.length
+      ? envelope.authorizations.some(auth => auth.team_id === identity!.teamId && auth.is_bot === true && auth.user_id === identity!.botUserId)
+      : envelope.team_id === identity.teamId;
+    if (allowed) await next();
   });
+
+  const accept = async (eventId: string, event: Record<string, any>): Promise<void> => {
+    if (!identity || !worker) throw new Error("Event worker is not ready");
+    if (["im", "mpim", "group"].includes(event.channel_type) || /^[DG]/.test(event.channel ?? "")) return;
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      await Promise.race([
+        storage.enqueue(inboxEvent(identity.teamId, eventId, event)),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Event inbox write timed out")), 2000); }),
+      ]);
+    } finally { if (timer) clearTimeout(timer); }
+  };
+  app.event("message", async ({ event, body }) => { await accept(body.event_id, event); });
+  app.event("app_mention", async ({ event, body }) => { await accept(body.event_id, event); });
+  app.event("user_change", async ({ event, body }) => { await accept(body.event_id, event); });
   app.error(async error => {
     bot.logger.error("Slack event processing failed", error);
     // Bolt otherwise treats a resolved global error handler as recovery and
@@ -120,14 +143,24 @@ export function createBoltBot(options: BoltBotOptions) {
         try {
           await storage.connect();
           await persistence.load();
-          await options.beforeScripts?.(brain);
+          await options.beforeScripts?.(brain, bot.logger);
           identity = await api.identity();
           await directory.loadUsers();
           await options.register(bot);
           brain.emit("loaded", brain.data);
           events = new SlackEvents(bot, api, directory, storage, identity);
+          worker = new InboxWorker(storage, async item => {
+            if (item.event.type === "user_change") {
+              if (item.event.user?.id) directory.updateUser(item.event.user);
+            } else {
+              // Inbox completion supplies deduplication; never pre-claim work
+              // that must remain replayable after a crash.
+              await events!.receive(item.team, item.event as import("./slack-adapter").SlackMessageEvent, false);
+            }
+          }, () => persistence.save(), bot.logger);
           persistence.start();
           ready = true;
+          worker.start();
         } catch (error) {
           identity = undefined;
           // Never save after an incomplete startup or corrupt memory read.
@@ -167,6 +200,7 @@ export function createBoltBot(options: BoltBotOptions) {
           if (serverStart) await serverStart.then(() => app.stop(), () => {});
           listening = false;
         } finally {
+          await worker?.stop();
           await events?.stop();
           await bot.flush();
           try {
@@ -179,5 +213,17 @@ export function createBoltBot(options: BoltBotOptions) {
     return stopping;
   }
 
-  return { app, receiver, bot, brain, initialize, start, stop };
+  async function drainEvents(): Promise<void> {
+    // Diagnostic/test drain: do not spin on events awaiting retry backoff.
+    let previous = Infinity;
+    while (worker) {
+      const count = (await storage.pendingEvents()).length;
+      if (!count || count >= previous) break;
+      previous = count;
+      await worker.tick();
+      await worker.settle();
+    }
+    await bot.flush();
+  }
+  return { app, receiver, bot, brain, initialize, start, stop, drainEvents };
 }

@@ -1,5 +1,5 @@
-import * as http from "node:http";
-import * as https from "node:https";
+import type * as http from "node:http";
+import { http as redirectsHttp, https as redirectsHttps } from "follow-redirects";
 import { stringify } from "node:querystring";
 import type { HttpCallback, HttpClient } from "./types";
 
@@ -9,8 +9,10 @@ export type RequestFactory = (
   callback: (response: http.IncomingMessage) => void,
 ) => http.ClientRequest;
 
-const request: RequestFactory = (url, options, callback) =>
-  (url.protocol === "https:" ? https : http).request(url, options, callback);
+const request: RequestFactory = (url, options, callback) => {
+  const redirectOptions: http.RequestOptions & { maxRedirects: number } = { ...options, maxRedirects: 5 };
+  return (url.protocol === "https:" ? redirectsHttps : redirectsHttp).request(url, redirectOptions, callback);
+};
 
 export class ScriptHttpClient implements HttpClient {
   private readonly url: URL;
@@ -20,6 +22,7 @@ export class ScriptHttpClient implements HttpClient {
   constructor(
     url: string,
     private readonly makeRequest: RequestFactory = request,
+    private readonly timeoutMs = 15000,
   ) {
     this.url = new URL(url);
     if (!["http:", "https:"].includes(this.url.protocol))
@@ -58,9 +61,11 @@ export class ScriptHttpClient implements HttpClient {
     callback: HttpCallback,
   ): void {
     let completed = false;
+    let deadline: NodeJS.Timeout | undefined;
     const finish: HttpCallback = (...args) => {
       if (completed) return;
       completed = true;
+      if (deadline) clearTimeout(deadline);
       callback(...args);
     };
     try {
@@ -88,6 +93,12 @@ export class ScriptHttpClient implements HttpClient {
         );
       });
       req.on("error", (error) => finish(error, null, null));
+      deadline = setTimeout(() => {
+        const error = new Error("HTTP request timed out");
+        finish(error, null, null);
+        req.destroy(error);
+      }, this.timeoutMs);
+      deadline.unref();
       req.end(body);
     } catch (error) {
       finish(

@@ -1,10 +1,9 @@
 #!/bin/bash
 
-. ~/.nvm/nvm.sh
-nvm install
-nvm use
-export BOT_NAME="bot"
-export PORT=8080
-set -a; source .env; set +a;
-npm ci --omit=optional --legacy-peer-deps
+set -e
+# Install dependencies and build during deployment, before invoking this script.
+if [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]; then
+  . "${NVM_DIR:-$HOME/.nvm}/nvm.sh"
+  nvm use
+fi
 exec npm run start

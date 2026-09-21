@@ -12,6 +12,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -27,6 +38,11 @@ jobs:
 
       - name: Typecheck and test
         run: npm run check
+
+      - name: Verify Redis inbox persistence and deduplication
+        run: npm run test:redis
+        env:
+          TEST_REDIS_URL: redis://127.0.0.1:6379
 
       - name: Build production image
         run: docker build --tag bot:test .

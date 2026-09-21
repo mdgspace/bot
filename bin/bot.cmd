@@ -1,14 +1,8 @@
 @echo off
 setlocal
 
-call npm install --legacy-peer-deps
-if errorlevel 1 exit /b 1
-
-call npm run build
-if errorlevel 1 exit /b 1
-
 if not exist scripts\main.js (
-  echo Cannot launch bot: scripts/main.js was not built. 1>&2
+  echo Cannot launch bot: run npm ci --omit=optional --legacy-peer-deps and npm run build first. 1>&2
   exit /b 1
 )
 

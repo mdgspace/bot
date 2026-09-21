@@ -8,6 +8,7 @@ const { setImmediate: nextTurn } = require("node:timers/promises");
 const { Brain, BrainPersistence } = require("../scripts/runtime/brain");
 const { Bot, TextMessage } = require("../scripts/runtime/bot");
 const { ScriptHttpClient } = require("../scripts/runtime/http-client");
+const { InboxWorker, inboxEvent } = require("../scripts/runtime/event-inbox");
 
 // All transports and persistence in this suite are fakes. No credentials or
 // Slack/Redis clients are instantiated, and HTTP tests inject request doubles.
@@ -298,12 +299,12 @@ test("send/reply/emote preserve order, envelopes, attachments and thread context
   bot.send("general", "four");
   bot.send(incoming.user, "five");
   await bot.flush();
-  assert.deepEqual(sent.map(item => item.method), ["send", "reply", "emote", "send", "send"]);
+  assert.deepEqual(sent.filter(item => item.envelope.message === incoming).map(item => item.method), ["send", "reply", "emote"]);
   assert.deepEqual(sent[0].messages, ["one", attachment]);
   assert.strictEqual(sent[0].envelope.message, incoming);
   assert.equal(sent[0].envelope.message.thread_ts, "123.456");
-  assert.deepEqual(sent[3].envelope, { room: "general" });
-  assert.strictEqual(sent[4].envelope.user, incoming.user);
+  assert.deepEqual(sent.find(item => item.messages[0] === "four").envelope, { room: "general" });
+  assert.strictEqual(sent.find(item => item.messages[0] === "five").envelope.user, incoming.user);
 });
 
 test("rejected unawaited sends are logged and later sends still run", async () => {
@@ -317,6 +318,33 @@ test("rejected unawaited sends are logged and later sends still run", async () =
   await bot.flush();
   assert.deepEqual(calls, ["fail", "next"]);
   assert.equal(errors[0].message, "delivery failed");
+});
+
+test("a blocked destination does not block sends to other channels", async () => {
+  let release;
+  const blocked = new Promise(resolve => { release = resolve; });
+  const calls = [];
+  const { bot } = botFor({ transport: { async deliver(method, envelope, messages) {
+    if (messages[0] === "first") await blocked;
+    calls.push(messages[0]);
+  } } });
+  bot.send("C1", "first");
+  bot.send("C1", "second");
+  bot.send("C2", "other");
+  await nextTurn();
+  assert.deepEqual(calls, ["other"]);
+  release();
+  await bot.flush();
+  assert.deepEqual(calls, ["other", "first", "second"]);
+});
+
+test("respond accepts a leading script anchor without changing capture groups", async () => {
+  const { bot } = botFor();
+  const calls = [];
+  bot.respond(/^ping (.*)$/i, response => calls.push(response.match[1]));
+  await bot.receive(message("bot ping hello"));
+  await bot.receive(message("someone bot ping nope"));
+  assert.deepEqual(calls, ["hello"]);
 });
 
 test("existing internal events still carry script payloads", () => {
@@ -468,4 +496,60 @@ test("synchronous HTTP setup errors use the callback contract", () => {
     assert.equal(body, null);
   });
   assert.equal(calls, 1);
+});
+
+test("inbox workers bound concurrency, preserve per-channel order and drain at shutdown", async () => {
+  const pending = new Map();
+  for (let i = 0; i < 12; i++) {
+    const item = inboxEvent("T1", `Ev${i}`, { type: "message", channel: `C${i}`, ts: "1" });
+    pending.set(item.id, item);
+  }
+  const last = inboxEvent("T1", "EvLast", { type: "message", channel: "C0", ts: "2" });
+  pending.set(last.id, last);
+  let release, active = 0, peak = 0;
+  const gate = new Promise(resolve => { release = resolve; });
+  const seen = [];
+  const storage = { async pendingEvents() { return [...pending.values()]; }, async completeEvent(id) { pending.delete(id); } };
+  const worker = new InboxWorker(storage, async item => {
+    active++; peak = Math.max(peak, active); await gate;
+    seen.push(`${item.channel}:${item.event.ts}`); active--;
+  }, async () => {}, { error: assert.fail });
+  await worker.tick();
+  assert.equal(active, 8);
+  release(); await worker.settle();
+  while (pending.size) { await worker.tick(); await worker.settle(); }
+  await worker.stop();
+  assert.equal(peak, 8);
+  assert(seen.indexOf("C0:1") < seen.indexOf("C0:2"));
+  assert.equal(seen.length, 13);
+});
+
+test("inbox retry retains events on process/save/completion failures without repeating completed work", async t => {
+  t.mock.timers.enable({ apis: ["Date"] });
+  for (const failure of ["process", "save", "complete"]) {
+    const item = inboxEvent("T1", "Ev1", { type: "message", channel: "C1", ts: failure });
+    let pending = true, fail = true, processed = 0, saved = 0;
+    const errors = [];
+    const storage = { async pendingEvents() { return pending ? [item] : []; }, async completeEvent() {
+      if (failure === "complete" && fail) { fail = false; throw new Error("storage down"); }
+      pending = false;
+    } };
+    const worker = new InboxWorker(storage, async () => {
+      processed++;
+      if (failure === "process" && fail) { fail = false; throw new Error("lookup failed"); }
+    }, async () => {
+      saved++;
+      if (failure === "save" && fail) { fail = false; throw new Error("storage down"); }
+    }, { error: (...args) => errors.push(args) });
+    await worker.tick(); await worker.settle();
+    assert.equal(pending, true); assert.equal(errors.length, 1);
+    await worker.tick(); await worker.settle();
+    assert.equal(processed, 1);
+    t.mock.timers.tick(1001);
+    await worker.tick(); await worker.settle();
+    assert.equal(pending, false);
+    assert.equal(processed, failure === "process" ? 2 : 1);
+    assert.equal(saved, failure === "process" ? 1 : 2);
+    await worker.stop();
+  }
 });

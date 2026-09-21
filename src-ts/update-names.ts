@@ -46,20 +46,27 @@ export = (robot: Robot): void => {
     }
   };
 
-  robot.respond(/update db/i, (msg) => {
+  let running = false;
+  robot.respond(/update db/i, async (msg) => {
+    if (running) { msg.send("Names database update is already running"); return; }
     msg.send("Updating names in database");
+    const ids = Object.values(robot.brain.data.users).map(user => user.id).filter(id => /^[UW][A-Z0-9]+$/.test(id));
     const run: UpdateRun = {
       parsedUsers: 0,
       updatedUsers: 0,
-      totalUsers: Object.keys(robot.brain.data.users).length,
+      totalUsers: ids.length,
       room: msg.message.user.room || msg.message.room,
     };
     if (run.totalUsers === 0) {
       reportIfComplete(run);
       return;
     }
-    for (const key of Object.keys(robot.brain.data.users)) {
-      void updateName(robot.brain.data.users[key].id, run);
-    }
+    running = true;
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      while (next < ids.length) await updateName(ids[next++], run);
+    };
+    try { await Promise.all([worker(), worker()]); }
+    finally { running = false; }
   });
 };

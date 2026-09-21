@@ -20,10 +20,8 @@ Configure these bot-token scopes:
 - `channels:read`
 - `chat:write`
 - `groups:read`
-- `im:read`
-- `mpim:read`
+- `im:write` (opening DMs for scripts that explicitly send to a user)
 - `users:read`
-- `users:read.email`
 
 Enable Event Subscriptions and set the Request URL to:
 
@@ -55,6 +53,7 @@ SLACK_SIGNING_SECRET=...
 REDIS_URL=redis://localhost:6379
 BOT_NAME=bot
 PORT=8080
+BOT_ADMIN_IDS=U0123456789
 ```
 
 `HUBOT_NAME` and `HUBOT_ALIAS` remain accepted as compatibility fallbacks; new deployments should use `BOT_NAME` and `BOT_ALIAS`. Existing command-specific `HUBOT_*` variables remain unchanged because their script behavior is outside this framework migration.
@@ -71,7 +70,7 @@ npm run build
 npm start
 ```
 
-`npm start` runs the Bolt entrypoint at `scripts/main.js`; its `prestart` hook recompiles TypeScript. The standalone launchers also install, build, validate, and start the app:
+`npm start` runs the previously built Bolt entrypoint at `scripts/main.js`. Run the locked install and build above after changing code or dependencies. Startup does not install packages or compile code. The standalone launchers validate the build and start the app:
 
 ```shell
 ./bin/bot
@@ -82,11 +81,13 @@ The old `bin/hubot` and `bin/hubot.cmd` paths forward to these Bolt launchers fo
 
 For watch mode, use `npm run dev`. It connects to the configured Slack and Redis services; there is no shell adapter in Bolt.
 
+Local npm commands and standalone launchers automatically load `.env`; already exported variables take precedence.
+
 ## Deployment paths
 
 All existing deployment paths remain supported:
 
-- `start_bot.sh` loads `.env`, performs a locked install, and runs the app.
+- `start_bot.sh` runs the prepared build through `npm start`, which loads `.env`.
 - `Procfile` starts a `web` process so the Events API route receives traffic.
 - `Dockerfile` builds TypeScript in a separate stage and starts `scripts/main.js` as the unprivileged `node` user.
 - `docker-compose.yml` loads production configuration from `.env` and publishes container port `8080` on `127.0.0.1:9998`.
@@ -101,6 +102,14 @@ docker run --rm --env-file .env -p 127.0.0.1:9998:8080 mdg-bot:latest
 
 The reverse proxy must forward the public `/slack/events` URL to the published port without rewriting the request body. Bolt verifies the Slack signature before acknowledging an event.
 
+Production Compose does not provision Redis. Set `REDIS_URL` (or a higher-precedence provider variable) to a Redis host reachable **from the container**; `localhost` refers to the bot container, not the Docker host. Keep the existing Redis key prefix to preserve memory. Use Redis persistence and a non-evicting policy for the brain and inbox.
+
+Run **one active bot instance** against a brain, including during cutover; stop the old bot before starting the replacement. Accepted events are written to a Redis inbox before HTTP acknowledgement. Workers process channels independently, retain transient failures with backoff, and replay pending work after restart. A crash between a script's external side effect and inbox completion can repeat that side effect: inbox processing is at-least-once, not exactly-once. Script callbacks and outbound sends are not transactional with inbox completion. Redis durability depends on its persistence configuration. Monitor inbox backlog and error logs for persistent credential/scope failures.
+
+As in the old middleware, incoming DM/private-channel commands are disabled. Thread replies retain the old adapter's thread context. Text on `file_share` messages now reaches listeners; edited/deleted/hidden messages remain excluded. Outbound text is split into 4,000-character chunks, with ordering per destination; send failures are logged. Legacy external command endpoints are unchanged: the HTTP helper follows redirects and fails after 15 seconds, but unavailable third-party services still require an operator-selected replacement.
+
+`natural` and `node-cron` are pinned to the baseline installed versions to preserve tokenizer imports and named-day schedules. The obsolete quote HTML parsers have been replaced without changing the quote command format.
+
 ## Persistent environment commands
 
 The former `hubot-env` commands are implemented locally and keep the existing `_private["hubot-env"]` brain data:
@@ -110,7 +119,11 @@ The former `hubot-env` commands are implemented locally and keep the existing `_
 - `bot env load --filename=FILE [--dry-run]`
 - `bot env flush all [--dry-run]`
 
-Slack credentials are always redacted from command output. Add other sensitive key fragments to the comma-separated `HUBOT_ENV_HIDDEN_WORDS` setting.
+All `env` commands, `show users`, `show storage`, and `die` require a human Slack user ID in the operator-configured, comma-separated `BOT_ADMIN_IDS`. With no IDs configured they are disabled. Chat-editable roles do not grant this access. `die` requests graceful shutdown; the deployment's restart policy still applies.
+
+Set `HUBOT_ENV_BASE_PATH` to a dedicated directory containing only files administrators may load. `env load` rejects paths and symlinks outside it. Administrator IDs, the base directory, and Node startup settings cannot be changed through persisted environment commands; change those in deployment configuration and restart.
+
+Credential-like keys (including keys, URLs, passwords, and auth values) are redacted from environment/storage output. `show users` omits emails, and fresh Slack profiles do not collect emails. Existing brain data is retained. Add project-specific sensitive key fragments to `HUBOT_ENV_HIDDEN_WORDS` for environment output. Authorized diagnostic output still goes to the invoking channel: use it only where the remaining data may be shared.
 
 ## Verification
 
@@ -119,3 +132,5 @@ npm run check
 ```
 
 The test suite uses fake Slack and Redis clients. It does not connect to a Slack workspace.
+
+CI additionally runs `npm run test:redis` with `TEST_REDIS_URL=redis://127.0.0.1:6379` against a disposable Redis service to verify the actual inbox Lua operations. This opt-in test accepts only loopback hosts and deletes only its own randomly named keys.

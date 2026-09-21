@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import { createClient } from "redis";
 import type { BrainStorage } from "./brain";
+import type { EventInbox, InboxEvent } from "./event-inbox";
 
 export interface EventClaims {
   claim(team: string, channel: string, timestamp: string): Promise<boolean>;
 }
 
-export interface BotStorage extends BrainStorage, EventClaims {
+export interface BotStorage extends BrainStorage, EventClaims, EventInbox {
   readonly ready: boolean;
   connect(): Promise<void>;
 }
@@ -21,6 +22,7 @@ export function redisConfiguration(env: NodeJS.ProcessEnv) {
   // Extract the encoded path verbatim after validating the URL. WHATWG URL
   // normalizes dot segments, which would change an existing brain's key.
   const path = raw.trim().match(/^[^:]+:\/\/[^/?#]*([^#]*)/)?.[1] ?? "";
+  // Strip only the leading slash; embedded slashes intentionally remain in the legacy key.
   const prefix = path.replace("/", "") || "hubot";
   url.pathname = "/0";
   url.search = "";
@@ -38,6 +40,9 @@ export interface RedisConnection {
   set(key: string, value: string, options?: { NX?: true; EX?: number }): Promise<string | null>;
   close(): Promise<void>;
   destroy(): void;
+  eval(script: string, options: { keys: string[]; arguments: string[] }): Promise<unknown>;
+  zRange(key: string, start: number, stop: number): Promise<string[]>;
+  hmGet(key: string, fields: string[]): Promise<(string | null)[]>;
 }
 
 export class RedisStorage implements BotStorage {
@@ -66,6 +71,37 @@ export class RedisStorage implements BotStorage {
     const id = createHash("sha256").update(JSON.stringify([team, channel, timestamp])).digest("hex");
     // Separate keys: never add adapter bookkeeping to the legacy brain JSON.
     return await this.client.set(`${this.storageKey}:slack-event:${id}`, "1", { NX: true, EX: 86400 }) === "OK";
+  }
+
+  async enqueue(event: InboxEvent): Promise<void> {
+    await this.client.eval(`
+      if redis.call('EXISTS', KEYS[3]) == 1 then return 0 end
+      if redis.call('HSETNX', KEYS[1], ARGV[1], ARGV[2]) == 1 then
+        redis.call('ZADD', KEYS[2], redis.call('INCR', KEYS[4]), ARGV[1])
+      end
+      return 1`, {
+      keys: [`${this.storageKey}:inbox`, `${this.storageKey}:inbox-order`,
+        `${this.storageKey}:slack-event:${event.id}`, `${this.storageKey}:inbox-sequence`],
+      arguments: [event.id, JSON.stringify(event)],
+    });
+  }
+
+  async pendingEvents(): Promise<InboxEvent[]> {
+    const ids = await this.client.zRange(`${this.storageKey}:inbox-order`, 0, -1);
+    if (!ids.length) return [];
+    const values = await this.client.hmGet(`${this.storageKey}:inbox`, ids);
+    return values.filter((value): value is string => value !== null).map(value => JSON.parse(value) as InboxEvent);
+  }
+
+  async completeEvent(id: string): Promise<void> {
+    await this.client.eval(`
+      redis.call('SET', KEYS[3], '1', 'EX', 86400)
+      redis.call('HDEL', KEYS[1], ARGV[1])
+      redis.call('ZREM', KEYS[2], ARGV[1])
+      return 1`, {
+      keys: [`${this.storageKey}:inbox`, `${this.storageKey}:inbox-order`, `${this.storageKey}:slack-event:${id}`],
+      arguments: [id],
+    });
   }
 
   async close(): Promise<void> {

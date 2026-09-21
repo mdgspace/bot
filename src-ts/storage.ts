@@ -7,22 +7,23 @@
 
 import type { Robot } from "./runtime/types";
 import * as Util from "util";
+import { adminGuard, redactStorage } from "./runtime/admin";
 
 export = (robot: Robot): void => {
+  const allowed = adminGuard();
   robot.respond(/show storage$/i, (msg) => {
-    const output = Util.inspect(robot.brain.data, false, 4);
+    if (!allowed(msg)) return;
+    const output = Util.inspect(redactStorage(robot.brain.data), false, 4);
     msg.send(output);
   });
 
   robot.respond(/show users$/i, (msg) => {
+    if (!allowed(msg)) return;
     let response = "";
 
     for (const key of Object.keys(robot.brain.data.users)) {
       const user = robot.brain.data.users[key];
       response += `${user.id} ${user.name}`;
-      if (user.email_address) {
-        response += ` <${user.email_address}>`;
-      }
       response += "\n";
     }
 

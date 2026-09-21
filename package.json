@@ -11,18 +11,14 @@
   },
   "dependencies": {
     "@slack/bolt": "^5.1.0",
-    "@types/express": "^5.0.6",
-    "@types/node": "^24.0.0",
     "express": "^5.2.1",
     "follow-redirects": "^1.0.0",
-    "htmlparser": "1.7.7",
+    "htmlparser2": "10.0.0",
     "moment": "^2.18.1",
-    "natural": "^0.5.0",
-    "node-cron": "^1.1.2",
+    "natural": "0.5.6",
+    "node-cron": "1.2.1",
     "node-time-ago": "^1.0.0",
     "redis": "^6.2.1",
-    "soupselect": "^0.2.0",
-    "typescript": "5.9.3",
     "undici": "^7.0.0"
   },
   "engines": {
@@ -35,12 +31,15 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node test/migration-regressions.js && node test/launcher-regressions.js && node --test test/runtime-regressions.js test/bolt-regressions.js test/cutover-regressions.js",
     "check": "npm run typecheck && npm test",
+    "test:redis": "npm run build && node --test test/redis-inbox-regressions.js",
     "heroku-postbuild": "npm run build",
-    "prestart": "npm run build",
     "start": "node --env-file-if-exists=.env scripts/main.js",
     "dev": "nodemon --watch src-ts --ext ts --exec \"npm run build && node --env-file-if-exists=.env scripts/main.js\""
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.0.0",
+    "typescript": "5.9.3",
     "nodemon": "^2.0.19"
   }
 }

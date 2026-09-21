@@ -12,8 +12,8 @@ export async function run(env: NodeJS.ProcessEnv = process.env): Promise<void> {
   const service = createBoltBot({
     config,
     env,
-    beforeScripts(brain) {
-      restorePersistedEnvironment(brain, service.bot.logger);
+    beforeScripts(brain, logger) {
+      restorePersistedEnvironment(brain, logger);
     },
     register(bot) {
       bot.addHelp(readFileSync(require.resolve("./environment"), "utf8"));
@@ -37,6 +37,7 @@ export async function run(env: NodeJS.ProcessEnv = process.env): Promise<void> {
   };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
+  service.bot.once("shutdown", () => { setImmediate(() => shutdown("SIGTERM")); });
 
   try {
     await service.start(config.port);

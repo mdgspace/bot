@@ -1,5 +1,12 @@
 import type { App } from "@slack/bolt";
 
+// Only explicit permanent lookup failures are dropped. Unknown, network,
+// rate-limit and authentication/configuration failures remain retryable.
+export function isPermanentLookupFailure(error: unknown): boolean {
+  const code = (error as { data?: { error?: string } })?.data?.error;
+  return !!code && ["channel_not_found", "user_not_found", "bot_not_found", "not_in_channel", "user_not_visible"].includes(code);
+}
+
 export interface SlackIdentity { teamId: string; botUserId: string; botId: string }
 export interface SlackUser {
   id: string;

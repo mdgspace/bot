@@ -111,6 +111,7 @@ test("persisted environment is restored without logging secret values", t => {
 });
 
 test("environment current always redacts credential-like variables", async t => {
+  preserveEnvironment(t, ["BOT_ADMIN_IDS"]); process.env.BOT_ADMIN_IDS = "U1";
   const keys = ["CUTOVER_VISIBLE", "CUTOVER_PASSWORD", "SLACK_BOT_TOKEN", "HUBOT_ENV_HIDDEN_WORDS"];
   preserveEnvironment(t, keys);
   process.env.CUTOVER_VISIBLE = "shown";
@@ -131,6 +132,7 @@ test("environment current always redacts credential-like variables", async t => 
 });
 
 test("environment file load and flush retain the existing brain format", async t => {
+  preserveEnvironment(t, ["BOT_ADMIN_IDS"]); process.env.BOT_ADMIN_IDS = "U1";
   const keys = ["HUBOT_ENV_BASE_PATH", "CUTOVER_VALUE", "CUTOVER_UNCHANGED", "SLACK_SIGNING_SECRET"];
   preserveEnvironment(t, keys);
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "bot-env-"));
@@ -185,4 +187,130 @@ test("production entrypoint import is offline and exports only explicit startup"
   const main = require("../scripts/main");
   assert.deepEqual(Object.keys(main), ["run"]);
   assert.equal(typeof main.run, "function");
+});
+
+test("sensitive commands fail closed without configured admins and reject chat roles/bots", async t => {
+  preserveEnvironment(t, ["BOT_ADMIN_IDS"]);
+  for (const admin of ["", "UOTHER", "U1"]) {
+    process.env.BOT_ADMIN_IDS = admin;
+    const { bot, sent } = botFixture();
+    registerEnvironmentCommands(bot);
+    require("../scripts/storage")(bot);
+    require("../scripts/ping")(bot);
+    let stopped = false;
+    bot.on("shutdown", () => { stopped = true; });
+    const user = { id: "U1", name: "alice", room: "C1", roles: ["admin", "maintainer"], slack: { is_bot: admin === "U1" } };
+    for (const text of ["env current", "env file", "env load --filename=secret", "env flush all", "show storage", "show users", "die"])
+      await bot.receive(new TextMessage(user, `bot ${text}`, "C1"));
+    await bot.flush();
+    assert.equal(sent.length, 7);
+    assert(sent.every(item => item.messages[0].includes("restricted")));
+    assert.equal(stopped, false);
+    assert.equal(bot.brain.get("hubot-env"), null);
+  }
+});
+
+test("admin diagnostics redact URL/key credentials and user emails without modifying memory", async t => {
+  const sensitive = ["REDIS_URL", "REDISTOGO_URL", "HUBOT_GOOGLE_CSE_KEY", "MIRROR_SCRIPT_URL", "INFO_SPREADSHEET_URL"];
+  preserveEnvironment(t, ["BOT_ADMIN_IDS", ...sensitive]);
+  process.env.BOT_ADMIN_IDS = "U1";
+  sensitive.forEach(key => { process.env[key] = "never-display-this"; });
+  const { bot, sent } = botFixture();
+  bot.brain.userForId("U1", { name: "alice", email_address: "private@example.invalid", slack: { profile: { email: "raw@example.invalid" } } });
+  bot.brain.set("hubot-env", { env: { SOME_SETTING: "stored-secret" } });
+  bot.brain.set("REDIS_URL", "redis://password@redis");
+  const before = JSON.stringify(bot.brain.data);
+  registerEnvironmentCommands(bot);
+  require("../scripts/storage")(bot);
+  require("../scripts/ping")(bot);
+  let stopped = false;
+  bot.on("shutdown", () => { stopped = true; });
+  for (const text of ["env current", "show storage", "show users", "die"]) await command(bot, `bot ${text}`);
+  const output = sent.flatMap(item => item.messages).join("\n");
+  for (const secret of ["never-display-this", "private@example.invalid", "raw@example.invalid", "stored-secret", "redis://password@redis"])
+    assert.equal(output.includes(secret), false, secret);
+  sensitive.forEach(key => assert(output.includes(`${key}=***`)));
+  assert.equal(stopped, true);
+  assert.equal(JSON.stringify(bot.brain.data), before);
+});
+
+test("environment loads reject traversal and absolute paths outside the configured directory", async t => {
+  preserveEnvironment(t, ["BOT_ADMIN_IDS", "HUBOT_ENV_BASE_PATH", "TRAVERSAL_TEST"]);
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "bot-env-boundary-"));
+  t.after(() => fs.rmSync(temporary, { recursive: true, force: true }));
+  const base = path.join(temporary, "allowed"); fs.mkdirSync(base);
+  fs.writeFileSync(path.join(temporary, "outside.env"), "TRAVERSAL_TEST=secret-file-content");
+  fs.writeFileSync(path.join(base, "safe.env"), "BOT_ADMIN_IDS=UATTACKER\nHUBOT_ENV_BASE_PATH=/\nTRAVERSAL_TEST=allowed");
+  process.env.BOT_ADMIN_IDS = "U1"; process.env.HUBOT_ENV_BASE_PATH = base;
+  delete process.env.TRAVERSAL_TEST;
+  const { bot, sent } = botFixture(); registerEnvironmentCommands(bot);
+  for (const filename of ["../outside.env", path.join(temporary, "outside.env")])
+    await command(bot, `bot env load --filename=${filename}`);
+  assert.equal(process.env.TRAVERSAL_TEST, undefined);
+  assert.equal(bot.brain.get("hubot-env"), null);
+  assert(sent.every(item => item.messages[0].startsWith("Error:")));
+  await command(bot, "bot env load --filename=safe.env");
+  assert.equal(process.env.TRAVERSAL_TEST, "allowed");
+  assert.equal(process.env.BOT_ADMIN_IDS, "U1");
+  assert.equal(process.env.HUBOT_ENV_BASE_PATH, base);
+  assert.deepEqual(bot.brain.get("hubot-env"), { env: { TRAVERSAL_TEST: "allowed" } });
+});
+
+test("environment loads resolve directory links before enforcing their boundary", async t => {
+  preserveEnvironment(t, ["BOT_ADMIN_IDS", "HUBOT_ENV_BASE_PATH"]);
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "bot-env-link-"));
+  t.after(() => fs.rmSync(temporary, { recursive: true, force: true }));
+  const base = path.join(temporary, "allowed"), outside = path.join(temporary, "outside");
+  fs.mkdirSync(base); fs.mkdirSync(outside);
+  fs.writeFileSync(path.join(outside, "secret.env"), "SECRET=never-display");
+  fs.symlinkSync(outside, path.join(base, "link"), process.platform === "win32" ? "junction" : "dir");
+  process.env.BOT_ADMIN_IDS = "U1"; process.env.HUBOT_ENV_BASE_PATH = base;
+  const { bot, sent } = botFixture(); registerEnvironmentCommands(bot);
+  await command(bot, "bot env load --filename=link/secret.env --dry-run");
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].messages[0], /^Error:/);
+});
+
+test("persisted settings cannot restore a different administrator policy", t => {
+  preserveEnvironment(t, ["BOT_ADMIN_IDS", "HUBOT_ENV_BASE_PATH", "NODE_OPTIONS", "NODE_PATH"]);
+  process.env.BOT_ADMIN_IDS = "U1"; process.env.HUBOT_ENV_BASE_PATH = "trusted";
+  const brain = new Brain();
+  brain.set("hubot-env", { env: { BOT_ADMIN_IDS: "UATTACKER", HUBOT_ENV_BASE_PATH: "/", NODE_OPTIONS: "--inspect", NODE_PATH: "untrusted" } });
+  assert.equal(restorePersistedEnvironment(brain, logger), 0);
+  assert.equal(process.env.BOT_ADMIN_IDS, "U1");
+  assert.equal(process.env.HUBOT_ENV_BASE_PATH, "trusted");
+});
+
+test("update db caps concurrency and refuses overlapping runs", async () => {
+  const { bot, sent } = botFixture();
+  for (let i = 0; i < 12; i++) bot.brain.userForId(`U${i}`, { name: "old" });
+  bot.brain.userForId("bot:B1", { name: "integration" });
+  let release, active = 0, max = 0, calls = 0;
+  const gate = new Promise(resolve => { release = resolve; });
+  bot.slack.userInfo = async id => {
+    calls++; active++; max = Math.max(max, active);
+    await gate; active--; return { id, name: `name-${id}` };
+  };
+  require("../scripts/update-names")(bot);
+  const first = command(bot, "bot update db");
+  await new Promise(resolve => setImmediate(resolve));
+  await command(bot, "bot update db");
+  assert.equal(calls, 2);
+  assert(sent.some(item => item.messages[0].includes("already running")));
+  release(); await first;
+  assert.equal(max, 2); assert.equal(calls, 12);
+  assert.equal(bot.brain.data.users["bot:B1"].name, "integration");
+  assert(sent.some(item => item.messages[0] === "Updated names for 12 out of 12 users"));
+});
+
+test("replacement quote parser preserves output and malformed-response fallback", async () => {
+  const { bot, sent } = botFixture();
+  let html = "<blockquote><p>A &amp; B</p><footer><cite>Author</cite></footer></blockquote>";
+  bot.http = () => ({ get: () => callback => callback(null, { statusCode: 200 }, html) });
+  require("../scripts/random-quote")(bot);
+  await command(bot, "bot random quote");
+  assert.equal(sent[0].messages[0], "_A &amp; B_ - Author");
+  html = "<html>not a quote</html>";
+  await command(bot, "bot random quote");
+  assert.equal(sent[1].messages[0], "_error_");
 });

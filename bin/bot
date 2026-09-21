@@ -2,11 +2,8 @@
 
 set -e
 
-npm install --legacy-peer-deps
-npm run build
-
 if [ ! -f scripts/main.js ]; then
-  echo "Cannot launch bot: scripts/main.js was not built." >&2
+  echo "Cannot launch bot: run npm ci --omit=optional --legacy-peer-deps and npm run build first." >&2
   exit 1
 fi
 

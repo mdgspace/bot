@@ -47,13 +47,17 @@ function fakeApi() {
 }
 function fakeStorage(value = JSON.stringify(savedBrain())) {
   const claims = new Set();
+  const inbox = new Map();
   return {
-    connects: 0, closes: 0, writes: [], claims, value, ready: true,
+    connects: 0, closes: 0, writes: [], claims, inbox, value, ready: true,
     async connect() { this.connects++; },
     async read() { return this.value; },
     async write(value) { this.writes.push(value); this.value = value; },
     async close() { this.closes++; },
     async claim(...key) { const id = JSON.stringify(key); if (claims.has(id)) return false; claims.add(id); return true; },
+    async enqueue(item) { if (!claims.has(item.id) && !inbox.has(item.id)) inbox.set(item.id, structuredClone(item)); },
+    async pendingEvents() { return [...inbox.values()]; },
+    async completeEvent(id) { claims.add(id); inbox.delete(id); },
   };
 }
 function setup(overrides = {}) {
@@ -73,6 +77,7 @@ function event(overrides = {}) { return { type: "message", user: "U1", channel: 
 async function dispatch(service, incoming, team = "T1") {
   let acknowledged = false;
   await service.app.processEvent({ body: { type: "event_callback", team_id: team, event_id: "Ev" + Math.random(), event: incoming }, ack: async () => { acknowledged = true; } });
+  await service.drainEvents();
   await service.bot.flush();
   return acknowledged;
 }
@@ -90,6 +95,97 @@ function request(server, path, body, headers = {}, method = "POST") {
 function signature(body, timestamp = Math.floor(Date.now() / 1000)) {
   return { "x-slack-request-timestamp": String(timestamp), "x-slack-signature": "v0=" + createHmac("sha256", config.signingSecret).update(`v0:${timestamp}:${JSON.stringify(body)}`).digest("hex") };
 }
+
+test("public message bursts reuse channel metadata and share concurrent lookups", async () => {
+  const { api, events, directory } = adapterSetup();
+  await Promise.all(Array.from({ length: 20 }, (_, i) => events.receive("T1", event({ ts: String(i), channel_type: "channel" }))));
+  assert.equal(api.calls.filter(call => call[0] === "channel").length, 1);
+  await Promise.all([directory.channel("C2"), directory.channel("C2")]);
+  assert.equal(api.calls.filter(call => call[0] === "channel").length, 2);
+});
+
+test("one slow channel does not block inbound processing in another", async () => {
+  const { api, events, bot } = adapterSetup();
+  let release;
+  const blocked = new Promise(resolve => { release = resolve; });
+  const channelInfo = api.channelInfo;
+  api.channelInfo = async id => { if (id === "C1") await blocked; return channelInfo(id); };
+  const seen = [];
+  bot.hear(/.*/, response => seen.push(response.message.room));
+  const first = events.receive("T1", event());
+  await events.receive("T1", event({ channel: "C2" }));
+  assert.deepEqual(seen, ["C2"]);
+  release(); await first;
+  assert.deepEqual(seen, ["C2", "C1"]);
+});
+
+test("permanent entity lookup failures are dropped while transient failures propagate", async () => {
+  for (const [method, code, overrides] of [
+    ["channelInfo", "channel_not_found", {}],
+    ["userInfo", "user_not_found", { user: "UUNKNOWN" }],
+    ["botInfo", "bot_not_found", { user: undefined, bot_id: "BMISSING", subtype: "bot_message" }],
+  ]) {
+    const { api, events, storage } = adapterSetup();
+    api[method] = async () => { throw Object.assign(new Error(code), { data: { error: code } }); };
+    await events.receive("T1", event(overrides));
+    assert.equal(storage.claims.size, 0);
+    api[method] = async () => { throw new Error("network unavailable"); };
+    await assert.rejects(events.receive("T1", event({ ...overrides, ts: "next" })), /network unavailable/);
+  }
+});
+
+test("file_share text reaches listeners and self bot messages remain excluded", async () => {
+  const { api, events, bot } = adapterSetup();
+  let heard = 0;
+  bot.hear(/ping/, () => { heard++; });
+  await events.receive("T1", event({ subtype: "file_share" }));
+  api.botInfo = async () => ({ id: "BALIAS", user_id: identity.botUserId });
+  await events.receive("T1", event({ user: undefined, bot_id: "BALIAS", subtype: "bot_message", ts: "other" }));
+  assert.equal(heard, 1);
+});
+
+test("long text is chunked without losing Unicode or attachment/thread metadata", async () => {
+  const { api, directory } = adapterSetup();
+  const transport = new SlackTransport(api, directory);
+  const text = "🙂".repeat(9001);
+  const attachment = { text: "details" };
+  await transport.deliver("send", { room: "C1", message: { thread_ts: "123" } }, [{ text, attachments: [attachment] }]);
+  assert.equal(api.posts.length, 3);
+  assert.equal(api.posts.map(post => post.text).join(""), text);
+  assert(api.posts.every(post => Array.from(post.text).length <= 4000 && post.thread_ts === "123"));
+  assert.deepEqual(api.posts[0].attachments, [attachment]);
+  assert.equal(api.posts[1].attachments, undefined);
+});
+
+test("shared-channel origin is accepted only for the authenticated installation", async t => {
+  const service = setup();
+  t.after(() => service.stop());
+  await service.initialize();
+  for (const user of ["UOTHERBOT", identity.botUserId]) {
+    await service.app.processEvent({ body: { type: "event_callback", team_id: "TEXTERNAL", event_id: user,
+      authorizations: [{ team_id: identity.teamId, user_id: user, is_bot: true }], event: event() }, ack: async () => {} });
+    await service.drainEvents();
+    assert.equal(service.api.posts.length, user === identity.botUserId ? 1 : 0);
+  }
+});
+
+test("HTTP helper follows redirects, limits loops and times out hung responses", async t => {
+  const { ScriptHttpClient } = require("../scripts/runtime/http-client");
+  const server = http.createServer((req, res) => {
+    if (req.url === "/redirect") { res.writeHead(302, { location: "/final" }); res.end(); }
+    else if (req.url === "/loop") { res.writeHead(302, { location: "/loop" }); res.end(); }
+    else if (req.url === "/final") res.end("redirected body");
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => { server.closeAllConnections(); return new Promise(resolve => server.close(resolve)); });
+  const get = path => new Promise(resolve => new ScriptHttpClient(`http://127.0.0.1:${server.address().port}${path}`, undefined, 300).get()(
+    (error, response, body) => resolve({ error, response, body })));
+  const redirected = await get("/redirect");
+  assert.equal(redirected.error, null);
+  assert.equal(redirected.body, "redirected body");
+  assert.match((await get("/loop")).error.message, /redirect/i);
+  assert.match((await get("/hung")).error.message, /timed out/);
+});
 
 test("configuration requires HTTP credentials, retains port/name, and needs no app token", () => {
   assert.throws(() => boltConfiguration({}, "test"), /SLACK_BOT_TOKEN/);
@@ -300,7 +396,8 @@ test("user_change merges metadata without deleting memory", async t => {
   const service = setup(); t.after(() => service.stop()); await service.initialize();
   await dispatch(service, { type: "user_change", user: { id: "U1", name: "renamed", real_name: "Alice", profile: { email: "new@example.invalid" } } });
   assert.equal(service.brain.data.users.U1.name, "renamed");
-  assert.equal(service.brain.data.users.U1.email_address, "new@example.invalid");
+  assert.equal(service.brain.data.users.U1.email_address, undefined);
+  assert.equal(service.brain.data.users.U1.slack.profile, undefined);
   assert.deepEqual(service.brain.data.users.U1.roles, ["maintainer"]);
 });
 
@@ -324,7 +421,7 @@ test("signed URL verification works; invalid, missing and stale signatures are r
   assert.equal((await request(server, "/slack/events", body, signature(body, 1))).status, 401);
 });
 
-test("Slack acknowledges only after command processing finishes", async t => {
+test("Slack acknowledges persisted events before slow command processing finishes", async t => {
   let release, entered;
   const started = new Promise(resolve => { entered = resolve; });
   const blocked = new Promise(resolve => { release = resolve; });
@@ -339,12 +436,14 @@ test("Slack acknowledges only after command processing finishes", async t => {
   });
   await started;
   await nextTurn();
-  assert.equal(responded, false);
+  assert.equal((await responsePromise).status, 200);
+  assert.equal(responded, true);
+  assert.equal(service.storage.inbox.size, 1);
   release();
   assert.equal((await responsePromise).status, 200);
 });
 
-test("transient preprocessing failures return 500 and the Slack retry succeeds", async t => {
+test("transient preprocessing failure remains in the inbox and succeeds after restart", async t => {
   const api = fakeApi();
   const original = api.channelInfo;
   let fail = true;
@@ -356,20 +455,59 @@ test("transient preprocessing failures return 500 and the Slack retry succeeds",
   t.after(() => service.stop());
   const server = await service.start({ port: 0, host: "127.0.0.1" });
   const body = { type: "event_callback", team_id: "T1", event_id: "EvLookupRetry", event: event() };
-  assert.equal((await request(server, "/slack/events", body, signature(body))).status, 500);
-  assert.equal(service.storage.claims.size, 0);
   assert.equal((await request(server, "/slack/events", body, signature(body))).status, 200);
-  await service.bot.flush();
+  await service.drainEvents();
+  assert.equal(service.storage.claims.size, 0);
+  assert.equal(service.storage.inbox.size, 1);
+  await service.stop();
+  const restarted = setup({ storage: service.storage, api });
+  t.after(() => restarted.stop());
+  await restarted.initialize();
+  await restarted.drainEvents();
+  await restarted.bot.flush();
+  assert.equal(service.storage.inbox.size, 0);
   assert.deepEqual(api.posts.map(post => post.text), ["PONG"]);
 });
 
-test("transient Redis claim failures return 500 and the Slack retry succeeds", async t => {
+test("a burst of HTTP events is acknowledged while channel workers are blocked", { timeout: 5000 }, async t => {
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const service = setup({ register(bot) { bot.respond(/ping$/, async () => { await gate; }); } });
+  t.after(async () => { release(); await service.stop(); });
+  const server = await service.start({ port: 0, host: "127.0.0.1" });
+  const responses = await Promise.all(Array.from({ length: 30 }, (_, i) => {
+    const body = { type: "event_callback", team_id: "T1", event_id: `Burst${i}`,
+      event: event({ ts: String(i), channel: `C${i % 3}`, channel_type: "channel" }) };
+    return request(server, "/slack/events", body, signature(body));
+  }));
+  assert(responses.every(response => response.status === 200));
+  assert.equal(service.storage.inbox.size, 30);
+  release(); await service.drainEvents();
+  assert.equal(service.storage.inbox.size, 0);
+  assert.equal(service.api.calls.filter(call => call[0] === "channel").length, 3);
+});
+
+test("an unresponsive Redis enqueue returns non-2xx before Slack's acknowledgement deadline", { timeout: 5000 }, async t => {
   const storage = fakeStorage();
-  const claim = storage.claim.bind(storage);
+  storage.enqueue = () => new Promise(() => {});
+  const service = setup({ storage });
+  t.after(() => service.stop());
+  const server = await service.start({ port: 0, host: "127.0.0.1" });
+  const body = { type: "event_callback", team_id: "T1", event_id: "HungRedis", event: event() };
+  const start = performance.now();
+  const response = await request(server, "/slack/events", body, signature(body));
+  assert.equal(response.status, 500);
+  assert(performance.now() - start < 3000);
+  assert.equal(storage.claims.size, 0);
+});
+
+test("transient Redis inbox failures return 500 and the Slack retry succeeds", async t => {
+  const storage = fakeStorage();
+  const enqueue = storage.enqueue.bind(storage);
   let fail = true;
-  storage.claim = async (...key) => {
+  storage.enqueue = async (...key) => {
     if (fail) { fail = false; throw new Error("temporary Redis claim failure"); }
-    return claim(...key);
+    return enqueue(...key);
   };
   const service = setup({ storage });
   t.after(() => service.stop());
@@ -457,18 +595,15 @@ test("Redis unavailability returns HTTP 503 before acknowledging, then accepts a
   assert.equal(service.storage.claims.size, 0);
   service.storage.ready = true;
   assert.equal((await request(server, "/slack/events", body, signature(body))).status, 200);
-  await nextTurn(); await service.bot.flush();
+  await service.drainEvents();
   assert.deepEqual(service.api.posts.map(post => post.text), ["PONG"]);
 });
 
 test("unauthorized workspaces cannot update users or run commands", async t => {
   const service = setup(); t.after(() => service.stop()); await service.initialize();
   t.mock.method(service.app.logger, "error", () => {});
-  await assert.rejects(dispatch(service, event(), "OTHER"), /not authorized/);
-  await assert.rejects(
-    dispatch(service, { type: "user_change", user: { id: "U1", name: "wrong" } }, "OTHER"),
-    /not authorized/,
-  );
+  await dispatch(service, event(), "OTHER");
+  await dispatch(service, { type: "user_change", user: { id: "U1", name: "wrong" } }, "OTHER");
   assert.equal(service.api.posts.length, 0);
   assert.equal(service.brain.data.users.U1.name, "alice");
 });

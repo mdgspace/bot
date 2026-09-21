@@ -34,11 +34,11 @@ function assertOrdered(contents, commands) {
   }
 }
 
-test("production installs include the TypeScript build toolchain", () => {
-  assert.equal(packageJson.dependencies.typescript, "5.9.3");
-  assert.equal(packageJson.dependencies["@types/node"], "^24.0.0");
-  assert.equal(packageJson.devDependencies.typescript, undefined);
-  assert.equal(packageJson.devDependencies["@types/node"], undefined);
+test("production installs exclude the TypeScript build toolchain", () => {
+  assert.equal(packageJson.devDependencies.typescript, "5.9.3");
+  assert.equal(packageJson.devDependencies["@types/node"], "^24.0.0");
+  assert.equal(packageJson.dependencies.typescript, undefined);
+  assert.equal(packageJson.dependencies["@types/node"], undefined);
 });
 
 test("Hubot runtime packages and manifests are removed", () => {
@@ -50,20 +50,16 @@ test("Hubot runtime packages and manifests are removed", () => {
   assert.equal(fs.existsSync(path.join(root, "hubot-scripts.json")), false);
 });
 
-test("Unix Bolt launcher installs, builds, validates and launches in order", () => {
+test("Unix Bolt launcher validates and launches without installing at boot", () => {
   assertOrdered(unixLauncher, [
-    "npm install",
-    "npm run build",
-    "scripts/main.js was not built",
+    "if [ ! -f scripts/main.js ]",
     "exec node --env-file-if-exists=.env scripts/main.js",
   ]);
   assert.equal(unixLauncher.includes("node_modules/.bin/hubot"), false);
 });
 
-test("Windows Bolt launcher installs, builds, validates and launches in order", () => {
+test("Windows Bolt launcher validates and launches without installing at boot", () => {
   assertOrdered(windowsLauncher, [
-    "call npm install",
-    "call npm run build",
     "if not exist scripts\\main.js",
     "node --env-file-if-exists=.env scripts\\main.js",
   ]);
@@ -80,7 +76,7 @@ test("legacy launcher paths forward to Bolt launchers", () => {
 });
 
 test("npm start and development mode use the Bolt entrypoint", () => {
-  assert.equal(packageJson.scripts.prestart, "npm run build");
+  assert.equal(packageJson.scripts.prestart, undefined);
   assert.equal(packageJson.scripts.start, "node --env-file-if-exists=.env scripts/main.js");
   assert(packageJson.scripts.dev.includes("node --env-file-if-exists=.env scripts/main.js"));
   assert.equal(packageJson.scripts.dev.includes("shell"), false);
