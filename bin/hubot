@@ -1,19 +1,5 @@
 #!/bin/sh
 
-set -e
-
-npm install --legacy-peer-deps
-npm run build
-
-compiled_script=""
-if [ -d scripts ]; then
-  compiled_script="$(find scripts -maxdepth 1 -type f -name '*.js' -print -quit)"
-fi
-if [ -z "$compiled_script" ]; then
-  echo "Cannot launch Hubot: no compiled JavaScript files were found in scripts/." >&2
-  exit 1
-fi
-
-export PATH="node_modules/.bin:node_modules/hubot/node_modules/.bin:$PATH"
-
-exec node_modules/.bin/hubot "$@"
+# Backward-compatible path for existing deployments. This invokes the Bolt
+# launcher and does not load the Hubot runtime.
+exec "$(dirname "$0")/bot" "$@"

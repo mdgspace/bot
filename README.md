@@ -1,188 +1,115 @@
-# Hubot
+# MDG Slack Bot
 
-This is a version of GitHub's Campfire bot, hubot. He's pretty cool.
+The Mobile Development Group Slack bot runs on [Bolt for JavaScript](https://docs.slack.dev/tools/bolt-js/) using Slack's HTTP Events API. The command implementations and persistent memory layout are retained from the previous runtime, but Hubot and `hubot-slack` are not runtime dependencies.
 
-This version is designed to be deployed on [Heroku][heroku]. This README was generated for you by hubot to help get you started. Definitely update and improve to talk about your own instance, how to use and deploy, what functionality he has, etc!
+## Requirements
 
-[heroku]: http://www.heroku.com
+- Node.js 24.19.0 and npm 11.17.0 (`.nvmrc` selects the Node release)
+- Redis
+- A Slack app in the MDG workspace
+- A public HTTPS endpoint which forwards `/slack/events` to port `8080`
 
-### Testing Hubot Locally
+## Slack app configuration
 
-Use Node.js 24.19.0 and npm 11.17.0. The repository's `.nvmrc` selects the
-supported Node.js release when using nvm.
+Create the new Slack app in the same workspace as the existing bot so stored Slack user IDs continue to identify the same people.
 
-Install the locked dependencies, compile the TypeScript sources, and start the
-shell adapter with:
+Configure these bot-token scopes:
 
-    % nvm install
-    % nvm use
-    % npm ci --omit=optional
-    % npm run build
-    % bin/hubot
+- `app_mentions:read`
+- `channels:history`
+- `channels:read`
+- `chat:write`
+- `groups:read`
+- `im:read`
+- `mpim:read`
+- `users:read`
+- `users:read.email`
 
-You'll see some start up output about where your scripts come from and a
-prompt.
+Enable Event Subscriptions and set the Request URL to:
 
-    [Sun, 04 Dec 2011 18:41:11 GMT] INFO Loading adapter shell
-    [Sun, 04 Dec 2011 18:41:11 GMT] INFO Loading scripts from /home/tomb/Development/hubot/scripts
-    [Sun, 04 Dec 2011 18:41:11 GMT] INFO Loading scripts from /home/tomb/Development/hubot/src/scripts
-    Hubot>
-
-Then you can interact with hubot by typing `hubot help`.
-
-    Hubot> hubot help
-
-    Hubot> animate me <query> - The same thing as `image me`, except adds a few
-    convert me <expression> to <units> - Convert expression to given units.
-    help - Displays all of the help commands that Hubot knows about.
-    ...
-
-
-### Scripting
-
-Take a look at the scripts in the `./scripts` folder for examples.
-Delete any scripts you think are useless or boring.  Add whatever functionality you
-want hubot to have. Read up on what you can do with hubot in the [Scripting Guide](https://github.com/github/hubot/blob/master/docs/scripting.md).
-
-### Redis Persistence
-
-If you are going to use the `redis-brain.coffee` script from `hubot-scripts`
-(strongly suggested), you will need to add the Redis to Go addon on Heroku which requires a verified
-account or you can create an account at [Redis to Go][redistogo] and manually
-set the `REDISTOGO_URL` variable.
-
-    % heroku config:set REDISTOGO_URL="..."
-
-If you don't require any persistence feel free to remove the
-`redis-brain.coffee` from `hubot-scripts.json` and you don't need to worry
-about redis at all.
-
-[redistogo]: https://redistogo.com/
-
-## Adapters
-
-Adapters are the interface to the service you want your hubot to run on. This
-can be something like Campfire or IRC. There are a number of third party
-adapters that the community have contributed. Check
-[Hubot Adapters][hubot-adapters] for the available ones.
-
-If you would like to run a non-Campfire or shell adapter you will need to add
-the adapter package as a dependency to the `package.json` file in the
-`dependencies` section.
-
-Once you've added the dependency and run `npm install` to install it you can
-then run hubot with the adapter.
-
-    % bin/hubot -a <adapter>
-
-Where `<adapter>` is the name of your adapter without the `hubot-` prefix.
-
-[hubot-adapters]: https://github.com/github/hubot/blob/master/docs/adapters.md
-
-## hubot-scripts
-
-There will inevitably be functionality that everyone will want. Instead
-of adding it to hubot itself, you can submit pull requests to
-[hubot-scripts][hubot-scripts].
-
-To enable scripts from the hubot-scripts package, add the script name with
-extension as a double quoted string to the `hubot-scripts.json` file in this
-repo.
-
-[hubot-scripts]: https://github.com/github/hubot-scripts
-
-## external-scripts
-
-Tired of waiting for your script to be merged into `hubot-scripts`? Want to
-maintain the repository and package yourself? Then this added functionality
-maybe for you!
-
-Hubot is now able to load scripts from third-party `npm` packages! To enable
-this functionality you can follow the following steps.
-
-1. Add the packages as dependencies into your `package.json`
-2. `npm install` to make sure those packages are installed
-
-To enable third-party scripts that you've added you will need to add the package
-name as a double quoted string to the `external-scripts.json` file in this repo.
-
-## Deployment
-
-    % heroku create --stack cedar
-    % git push heroku master
-    % heroku ps:scale app=1
-
-If your Heroku account has been verified you can run the following to enable
-and add the Redis to Go addon to your app.
-
-    % heroku addons:add redistogo:nano
-
-If you run into any problems, checkout Heroku's [docs][heroku-node-docs].
-
-You'll need to edit the `Procfile` to set the name of your hubot.
-
-More detailed documentation can be found on the
-[deploying hubot onto Heroku][deploy-heroku] wiki page.
-
-### Deploying to UNIX or Windows
-
-If you would like to deploy to either a UNIX operating system or Windows.
-Please check out the [deploying hubot onto UNIX][deploy-unix] and
-[deploying hubot onto Windows][deploy-windows] wiki pages.
-
-[heroku-node-docs]: http://devcenter.heroku.com/articles/node-js
-[deploy-heroku]: https://github.com/github/hubot/blob/master/docs/deploying/heroku.md
-[deploy-unix]: https://github.com/github/hubot/blob/master/docs/deploying/unix.md
-[deploy-windows]: https://github.com/github/hubot/blob/master/docs/deploying/unix.md
-
-## Campfire Variables
-
-If you are using the Campfire adapter you will need to set some environment
-variables. Refer to the documentation for other adapters and the configuraiton
-of those, links to the adapters can be found on [Hubot Adapters][hubot-adapters].
-
-Create a separate Campfire user for your bot and get their token from the web
-UI.
-
-    % heroku config:set HUBOT_CAMPFIRE_TOKEN="..."
-
-Get the numeric IDs of the rooms you want the bot to join, comma delimited. If
-you want the bot to connect to `https://mysubdomain.campfirenow.com/room/42` 
-and `https://mysubdomain.campfirenow.com/room/1024` then you'd add it like this:
-
-    % heroku config:set HUBOT_CAMPFIRE_ROOMS="42,1024"
-
-Add the subdomain hubot should connect to. If you web URL looks like
-`http://mysubdomain.campfirenow.com` then you'd add it like this:
-
-    % heroku config:set HUBOT_CAMPFIRE_ACCOUNT="mysubdomain"
-
-[hubot-adapters]: https://github.com/github/hubot/blob/master/docs/adapters.md
-
-## Restart the bot
-
-You may want to get comfortable with `heroku logs` and `heroku restart`
-if you're having issues.
-
----
-
-## Installation using Docker
-- Build the image using `docker build . -t bot:latest`
-- Add the environment variables in a .env file
-- Create a container to run the image `docker run -d --env-file .env --name bot_cont -p 127.0.0.1:<Port on host>:8080 bot`
-
-## Development setup using Docker
-You can use the `dev_docker-compose.yml` file to spin up containers with Redis services easily.
-Use this env variables for the same.
+```text
+https://<public-host>/slack/events
 ```
-REDIS_URL=redis://redis:6379
+
+Subscribe to these bot events:
+
+- `app_mention`
+- `message.channels`
+- `user_change`
+
+Install the app to the workspace and copy its bot token and signing secret. Socket Mode is not used, so `SLACK_APP_TOKEN` is not required.
+
+## Configuration
+
+Copy `.env.example` to `.env` and provide at least:
+
+```dotenv
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_SIGNING_SECRET=...
+REDIS_URL=redis://localhost:6379
+BOT_NAME=bot
+PORT=8080
 ```
-Run this command to run the containers
+
+`HUBOT_NAME` and `HUBOT_ALIAS` remain accepted as compatibility fallbacks; new deployments should use `BOT_NAME` and `BOT_ALIAS`. Existing command-specific `HUBOT_*` variables remain unchanged because their script behavior is outside this framework migration.
+
+The Redis URL selection order remains `REDISTOGO_URL`, `REDISCLOUD_URL`, `BOXEN_REDIS_URL`, then `REDIS_URL`. For compatibility with the existing brain, a URL path is treated as the key prefix in Redis database 0. For example, `redis://cache:6379/mdg` reads and writes `mdg:storage`. With no path, the key remains `hubot:storage`.
+
+## Running locally
+
 ```shell
-$ docker-compose -f dev_docker-compose.yml up
+nvm install
+nvm use
+npm ci --omit=optional --legacy-peer-deps
+npm run build
+npm start
 ```
-To interact with hubot using shell,
+
+`npm start` runs the Bolt entrypoint at `scripts/main.js`; its `prestart` hook recompiles TypeScript. The standalone launchers also install, build, validate, and start the app:
+
 ```shell
-$ docker exec -it mdg-bot bash
-$ ./bin/hubot
+./bin/bot
+bin\bot.cmd
 ```
+
+The old `bin/hubot` and `bin/hubot.cmd` paths forward to these Bolt launchers for deployment compatibility. They do not load Hubot.
+
+For watch mode, use `npm run dev`. It connects to the configured Slack and Redis services; there is no shell adapter in Bolt.
+
+## Deployment paths
+
+All existing deployment paths remain supported:
+
+- `start_bot.sh` loads `.env`, performs a locked install, and runs the app.
+- `Procfile` starts a `web` process so the Events API route receives traffic.
+- `Dockerfile` builds TypeScript in a separate stage and starts `scripts/main.js` as the unprivileged `node` user.
+- `docker-compose.yml` loads production configuration from `.env` and publishes container port `8080` on `127.0.0.1:9998`.
+- `dev_docker-compose.yml` additionally starts Redis and sets the bot's Redis hostname.
+
+Example Docker commands:
+
+```shell
+docker build . -t mdg-bot:latest
+docker run --rm --env-file .env -p 127.0.0.1:9998:8080 mdg-bot:latest
+```
+
+The reverse proxy must forward the public `/slack/events` URL to the published port without rewriting the request body. Bolt verifies the Slack signature before acknowledging an event.
+
+## Persistent environment commands
+
+The former `hubot-env` commands are implemented locally and keep the existing `_private["hubot-env"]` brain data:
+
+- `bot env current [--prefix=PREFIX]`
+- `bot env file`
+- `bot env load --filename=FILE [--dry-run]`
+- `bot env flush all [--dry-run]`
+
+Slack credentials are always redacted from command output. Add other sensitive key fragments to the comma-separated `HUBOT_ENV_HIDDEN_WORDS` setting.
+
+## Verification
+
+```shell
+npm run check
+```
+
+The test suite uses fake Slack and Redis clients. It does not connect to a Slack workspace.

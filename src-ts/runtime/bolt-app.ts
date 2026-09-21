@@ -24,8 +24,8 @@ export function boltConfiguration(env: NodeJS.ProcessEnv, version: string): Bolt
   return {
     token: env.SLACK_BOT_TOKEN,
     signingSecret: env.SLACK_SIGNING_SECRET,
-    name: env.HUBOT_NAME || "bot",
-    alias: env.HUBOT_ALIAS || undefined,
+    name: env.BOT_NAME || env.HUBOT_NAME || "bot",
+    alias: env.BOT_ALIAS || env.HUBOT_ALIAS || undefined,
     version,
     port,
   };
@@ -112,9 +112,9 @@ export function createBoltBot(options: BoltBotOptions) {
         try {
           await storage.connect();
           await persistence.load();
+          await options.beforeScripts?.(brain);
           identity = await api.identity();
           await directory.loadUsers();
-          await options.beforeScripts?.(brain);
           await options.register(bot);
           brain.emit("loaded", brain.data);
           events = new SlackEvents(bot, api, directory, storage, identity);

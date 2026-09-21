@@ -4,15 +4,10 @@
   "private": true,
   "author": "sdsmdg",
   "description": "Slack bot for Mobile Development Group, IIT Roorkee",
-  "licenses": [
-    {
-      "type": "MIT",
-      "url": "https://github.com/github/hubot/raw/master/LICENSE"
-    }
-  ],
+  "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/sdsmdg/hubot.git"
+    "url": "https://github.com/mdgspace/bot.git"
   },
   "dependencies": {
     "@slack/bolt": "^5.1.0",
@@ -21,11 +16,6 @@
     "express": "^5.2.1",
     "follow-redirects": "^1.0.0",
     "htmlparser": "1.7.7",
-    "hubot": "^14.1.0",
-    "hubot-env": "0.0.2",
-    "hubot-redis-brain": "0.0.3",
-    "hubot-scripts": "^2.17.2",
-    "hubot-slack": "^4.3.4",
     "moment": "^2.18.1",
     "natural": "^0.5.0",
     "node-cron": "^1.1.2",
@@ -43,11 +33,12 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node test/migration-regressions.js && node test/launcher-regressions.js && node --test test/runtime-regressions.js test/bolt-regressions.js",
+    "test": "npm run build && node test/migration-regressions.js && node test/launcher-regressions.js && node --test test/runtime-regressions.js test/bolt-regressions.js test/cutover-regressions.js",
     "check": "npm run typecheck && npm test",
     "heroku-postbuild": "npm run build",
-    "start": "./bin/hubot -n ${HUBOT_NAME:-bot} -a slack",
-    "dev": "nodemon --watch src-ts --ext ts --exec \"npm run build && ./node_modules/.bin/hubot -n bot -a shell\""
+    "prestart": "npm run build",
+    "start": "node scripts/main.js",
+    "dev": "nodemon --watch src-ts --ext ts --exec \"npm run build && node scripts/main.js\""
   },
   "devDependencies": {
     "nodemon": "^2.0.19"
