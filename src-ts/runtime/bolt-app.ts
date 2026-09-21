@@ -58,7 +58,10 @@ export function createBoltBot(options: BoltBotOptions) {
     signingSecret: config.signingSecret,
     endpoints: "/slack/events",
     signatureVerification: true,
-    processBeforeResponse: false,
+    // Hold the automatic Events API acknowledgement until the listener has
+    // completed. If preprocessing or the Redis claim fails, the receiver can
+    // still return a non-2xx response and Slack will retry the event.
+    processBeforeResponse: true,
   });
   let identity: SlackIdentity | undefined;
   const app = new App({
@@ -103,7 +106,12 @@ export function createBoltBot(options: BoltBotOptions) {
   app.event("user_change", async ({ event }) => {
     if (event.user.id) directory.updateUser({ ...event.user, id: event.user.id });
   });
-  app.error(async error => { bot.logger.error("Slack event processing failed", error); });
+  app.error(async error => {
+    bot.logger.error("Slack event processing failed", error);
+    // Bolt otherwise treats a resolved global error handler as recovery and
+    // sends the stored 200 response even though the listener failed.
+    throw error;
+  });
 
   function initialize(): Promise<void> {
     if (stopping) return Promise.reject(new Error("Bot is stopping"));

@@ -38,7 +38,7 @@ function fakeApi() {
     async identity() { calls.push(["identity"]); return identity; },
     async userInfo(id) { calls.push(["user", id]); return { id, name: id === "U1" ? "alice" : "bob", profile: { email: "test@example.invalid" } }; },
     async users() { return { users: [] }; },
-    async botUserId(id) { calls.push(["bot", id]); return "UOTHERBOT"; },
+    async botInfo(id) { calls.push(["bot", id]); return { id, name: "other-bot", user_id: "UOTHERBOT" }; },
     async channelInfo(id) { calls.push(["channel", id]); return { id, name: "general", is_private: false, is_im: false }; },
     async channels(cursor) { calls.push(["channels", cursor]); return { channels: [{ id: "C1", name: "general" }] }; },
     async openDM(user) { calls.push(["dm", user]); return "D1"; },
@@ -223,12 +223,19 @@ test("Redis claim errors do not process the message without deduplication", asyn
 });
 
 test("other bot messages and thread broadcasts retain supported legacy dispatch", async () => {
-  const { bot, events } = adapterSetup();
+  const { brain, bot, events, api } = adapterSetup();
   const users = [];
   bot.hear(/.*/, response => users.push(response.message.user.id));
   await events.receive("T1", event({ subtype: "bot_message", bot_id: "BOTHER", user: undefined }));
   await events.receive("T1", event({ subtype: "thread_broadcast", ts: "124" }));
-  assert.deepEqual(users, ["UOTHERBOT", "U1"]);
+  api.botInfo = async id => ({ id, name: "legacy-webhook", icons: { image_48: "https://example.invalid/bot.png" } });
+  await events.receive("T1", event({ subtype: "bot_message", bot_id: "BWEBHOOK", user: undefined, ts: "125" }));
+  assert.deepEqual(users, ["UOTHERBOT", "U1", "bot:BWEBHOOK"]);
+  assert.equal(brain.data.users["bot:BWEBHOOK"].name, "legacy-webhook");
+  assert.deepEqual(brain.data.users["bot:BWEBHOOK"].slack, {
+    id: "BWEBHOOK", name: "legacy-webhook", icons: { image_48: "https://example.invalid/bot.png" },
+    bot_id: "BWEBHOOK", is_bot: true,
+  });
 });
 
 test("normalization retains mentions, channel labels, links, entities and attachments", async () => {
@@ -278,9 +285,15 @@ test("channel names use paginated lookup, IDs need no lookup, and user IDs open 
 
 test("Slack API wrapper uses the configured token even when a message contains a token", async () => {
   const calls = [];
-  const client = { chat: { async postMessage(args) { calls.push(args); } } };
-  await slackApi(client, "configured-token").postMessage({ channel: "C1", text: "hi", token: "injected" });
+  const client = {
+    chat: { async postMessage(args) { calls.push(args); } },
+    bots: { async info(args) { calls.push(args); return { ok: true, bot: { id: args.bot, name: "webhook" } }; } },
+  };
+  const api = slackApi(client, "configured-token");
+  await api.postMessage({ channel: "C1", text: "hi", token: "injected" });
   assert.equal(calls[0].token, "configured-token");
+  assert.deepEqual(await api.botInfo("B1"), { id: "B1", name: "webhook" });
+  assert.equal(calls[1].token, "configured-token");
 });
 
 test("user_change merges metadata without deleting memory", async t => {
@@ -311,7 +324,7 @@ test("signed URL verification works; invalid, missing and stale signatures are r
   assert.equal((await request(server, "/slack/events", body, signature(body, 1))).status, 401);
 });
 
-test("Slack acknowledges before slow command processing finishes", async t => {
+test("Slack acknowledges only after command processing finishes", async t => {
   let release, entered;
   const started = new Promise(resolve => { entered = resolve; });
   const blocked = new Promise(resolve => { release = resolve; });
@@ -319,8 +332,52 @@ test("Slack acknowledges before slow command processing finishes", async t => {
   t.after(async () => { release(); await service.stop(); });
   const server = await service.start({ port: 0, host: "127.0.0.1" });
   const body = { type: "event_callback", team_id: "T1", event_id: "EvSlow", event: event({ text: "bot slow" }) };
-  const response = await request(server, "/slack/events", body, signature(body));
-  assert.equal(response.status, 200); await started; release();
+  let responded = false;
+  const responsePromise = request(server, "/slack/events", body, signature(body)).then(response => {
+    responded = true;
+    return response;
+  });
+  await started;
+  await nextTurn();
+  assert.equal(responded, false);
+  release();
+  assert.equal((await responsePromise).status, 200);
+});
+
+test("transient preprocessing failures return 500 and the Slack retry succeeds", async t => {
+  const api = fakeApi();
+  const original = api.channelInfo;
+  let fail = true;
+  api.channelInfo = async id => {
+    if (fail) { fail = false; throw new Error("temporary Slack lookup failure"); }
+    return original(id);
+  };
+  const service = setup({ api });
+  t.after(() => service.stop());
+  const server = await service.start({ port: 0, host: "127.0.0.1" });
+  const body = { type: "event_callback", team_id: "T1", event_id: "EvLookupRetry", event: event() };
+  assert.equal((await request(server, "/slack/events", body, signature(body))).status, 500);
+  assert.equal(service.storage.claims.size, 0);
+  assert.equal((await request(server, "/slack/events", body, signature(body))).status, 200);
+  await service.bot.flush();
+  assert.deepEqual(api.posts.map(post => post.text), ["PONG"]);
+});
+
+test("transient Redis claim failures return 500 and the Slack retry succeeds", async t => {
+  const storage = fakeStorage();
+  const claim = storage.claim.bind(storage);
+  let fail = true;
+  storage.claim = async (...key) => {
+    if (fail) { fail = false; throw new Error("temporary Redis claim failure"); }
+    return claim(...key);
+  };
+  const service = setup({ storage });
+  t.after(() => service.stop());
+  const server = await service.start({ port: 0, host: "127.0.0.1" });
+  const body = { type: "event_callback", team_id: "T1", event_id: "EvClaimRetry", event: event() };
+  assert.equal((await request(server, "/slack/events", body, signature(body))).status, 500);
+  assert.equal(storage.claims.size, 0);
+  assert.equal((await request(server, "/slack/events", body, signature(body))).status, 200);
 });
 
 test("existing HTTP routes and authenticated JSON webhook run on the Bolt receiver", async t => {
@@ -407,8 +464,11 @@ test("Redis unavailability returns HTTP 503 before acknowledging, then accepts a
 test("unauthorized workspaces cannot update users or run commands", async t => {
   const service = setup(); t.after(() => service.stop()); await service.initialize();
   t.mock.method(service.app.logger, "error", () => {});
-  await dispatch(service, event(), "OTHER");
-  await dispatch(service, { type: "user_change", user: { id: "U1", name: "wrong" } }, "OTHER");
+  await assert.rejects(dispatch(service, event(), "OTHER"), /not authorized/);
+  await assert.rejects(
+    dispatch(service, { type: "user_change", user: { id: "U1", name: "wrong" } }, "OTHER"),
+    /not authorized/,
+  );
   assert.equal(service.api.posts.length, 0);
   assert.equal(service.brain.data.users.U1.name, "alice");
 });

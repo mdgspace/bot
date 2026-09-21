@@ -55,7 +55,7 @@ test("Unix Bolt launcher installs, builds, validates and launches in order", () 
     "npm install",
     "npm run build",
     "scripts/main.js was not built",
-    "exec node scripts/main.js",
+    "exec node --env-file-if-exists=.env scripts/main.js",
   ]);
   assert.equal(unixLauncher.includes("node_modules/.bin/hubot"), false);
 });
@@ -65,7 +65,7 @@ test("Windows Bolt launcher installs, builds, validates and launches in order", 
     "call npm install",
     "call npm run build",
     "if not exist scripts\\main.js",
-    "node scripts\\main.js",
+    "node --env-file-if-exists=.env scripts\\main.js",
   ]);
   assert.equal(windowsLauncher.includes("node_modules\\.bin\\hubot"), false);
   assert.match(windowsLauncher, /set "BOT_NAME=%~2"/);
@@ -81,8 +81,8 @@ test("legacy launcher paths forward to Bolt launchers", () => {
 
 test("npm start and development mode use the Bolt entrypoint", () => {
   assert.equal(packageJson.scripts.prestart, "npm run build");
-  assert.equal(packageJson.scripts.start, "node scripts/main.js");
-  assert(packageJson.scripts.dev.includes("node scripts/main.js"));
+  assert.equal(packageJson.scripts.start, "node --env-file-if-exists=.env scripts/main.js");
+  assert(packageJson.scripts.dev.includes("node --env-file-if-exists=.env scripts/main.js"));
   assert.equal(packageJson.scripts.dev.includes("shell"), false);
 });
 
@@ -99,6 +99,13 @@ test("Procfile uses a web process and every deployment path reaches Bolt", () =>
   assert(read("start_bot.sh").includes("exec npm run start"));
   assert(read("docker-compose.yml").includes("8080"));
   assert(read("dev_docker-compose.yml").includes("REDIS_URL: redis://redis:6379"));
+});
+
+test("fresh Slack app setup requires channel membership", () => {
+  const readme = read("README.md");
+  assert.match(readme, /invite the new bot to every public channel/i);
+  assert.match(readme, /\/invite @<new-app-bot-name>/);
+  assert.match(readme, /including `#general`/);
 });
 
 test("the compiled entrypoint is import-safe and does not require credentials", () => {

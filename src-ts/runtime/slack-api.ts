@@ -8,6 +8,12 @@ export interface SlackUser {
   profile?: { email?: string };
   [key: string]: unknown;
 }
+export interface SlackBot {
+  id: string;
+  name?: string;
+  user_id?: string;
+  [key: string]: unknown;
+}
 export interface SlackChannel {
   id: string;
   name?: string;
@@ -21,7 +27,7 @@ export interface SlackApi {
   identity(): Promise<SlackIdentity>;
   userInfo(id: string): Promise<SlackUser>;
   users(cursor?: string): Promise<{ users: SlackUser[]; cursor?: string }>;
-  botUserId(id: string): Promise<string | undefined>;
+  botInfo(id: string): Promise<SlackBot>;
   channelInfo(id: string): Promise<SlackChannel>;
   channels(cursor?: string): Promise<{ channels: SlackChannel[]; cursor?: string }>;
   openDM(user: string): Promise<string>;
@@ -40,7 +46,11 @@ export function slackApi(client: App["client"], token: string): SlackApi {
       if (!result.ok || !result.user?.id) throw new Error(`Slack user not found: ${user}`);
       return result.user as SlackUser;
     },
-    async botUserId(bot) { return (await client.bots.info({ token, bot })).bot?.user_id; },
+    async botInfo(bot) {
+      const result = await client.bots.info({ token, bot });
+      if (!result.ok || !result.bot?.id) throw new Error(`Slack bot not found: ${bot}`);
+      return result.bot as SlackBot;
+    },
     async users(cursor) {
       const result = await client.users.list({ token, cursor, limit: 200 });
       if (!result.ok) throw new Error("Cannot load Slack users");

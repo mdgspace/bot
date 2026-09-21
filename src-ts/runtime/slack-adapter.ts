@@ -1,7 +1,7 @@
 import { Bot, TextMessage } from "./bot";
 import type { Brain } from "./brain";
 import type { EventClaims } from "./redis-storage";
-import type { SlackApi, SlackChannel, SlackIdentity, SlackUser } from "./slack-api";
+import type { SlackApi, SlackBot, SlackChannel, SlackIdentity, SlackUser } from "./slack-api";
 import type { DeliveryMethod, Envelope, Logger, OutgoingMessage, Transport, User } from "./types";
 
 export interface SlackMessageEvent {
@@ -47,6 +47,15 @@ export class SlackDirectory {
   async user(id: string): Promise<User> {
     if (Object.hasOwn(this.brain.data.users, id)) return this.brain.data.users[id];
     return this.updateUser(await this.api.userInfo(id));
+  }
+
+  bot(id: string, metadata: SlackBot): User {
+    const syntheticId = `bot:${id}`;
+    return this.brain.userForId(syntheticId, {
+      name: metadata.name || id,
+      real_name: metadata.name,
+      slack: { ...metadata, bot_id: id, is_bot: true },
+    });
   }
 
   async channel(id: string, fresh = false): Promise<SlackChannel> {
@@ -166,9 +175,18 @@ export class SlackEvents {
     if (["im", "mpim", "group"].includes(event.channel_type ?? "") || /^[DG]/.test(event.channel)) return;
     const channel = await this.directory.channel(event.channel, true);
     if (channel.is_private || channel.is_im || channel.is_mpim) return;
-    const userId = event.user || (event.bot_id ? await this.api.botUserId(event.bot_id) : undefined);
-    if (!userId || userId === this.identity.botUserId || userId === "USLACKBOT") return;
-    const user = await this.directory.user(userId);
+    let user: User;
+    if (event.user) {
+      if (event.user === this.identity.botUserId || event.user === "USLACKBOT") return;
+      user = await this.directory.user(event.user);
+    } else if (event.bot_id) {
+      const bot = await this.api.botInfo(event.bot_id);
+      user = bot.user_id
+        ? await this.directory.user(bot.user_id)
+        : this.directory.bot(event.bot_id, bot);
+    } else {
+      return;
+    }
     const fallback = (event.attachments ?? []).map(attachment => attachment.fallback ?? "").join("\n");
     const text = await normalizeSlackText((event.text ?? "") + (fallback ? `\n${fallback}` : ""), this.identity, this.bot.name, this.directory, this.bot.logger);
     // Claim only once preprocessing succeeds; overlap and retry IDs may differ,

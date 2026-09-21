@@ -37,4 +37,4 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-exec node scripts/main.js
+exec node --env-file-if-exists=.env scripts/main.js

@@ -328,14 +328,18 @@ test("existing internal events still carry script payloads", () => {
   assert.strictEqual(received, payload);
 });
 
-test("help reads compiled command comments, ignores other sections and returns a copy", () => {
+test("help reads command comments, skips None placeholders and returns a copy", () => {
   const { bot } = botFor();
   bot.addHelp(readFileSync(require.resolve("../scripts/help"), "utf8"));
   bot.addHelp('// Commands:\n//   hubot aaa - first\n// Notes:\n//   not a command');
+  bot.addHelp(readFileSync(require.resolve("../scripts/idlecheck"), "utf8"));
+  bot.addHelp(readFileSync(require.resolve("../scripts/httpd"), "utf8"));
+  bot.addHelp('// Commands:\n//   nOnE');
   const commands = bot.helpCommands();
   assert.equal(commands.length, 3);
   assert.equal(commands[0], "hubot aaa - first");
   assert(commands.every(command => command.startsWith("hubot ")));
+  assert.equal(commands.some(command => /^none$/i.test(command)), false);
   commands.length = 0;
   assert.equal(bot.helpCommands().length, 3);
 });

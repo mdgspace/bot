@@ -37,8 +37,8 @@
     "check": "npm run typecheck && npm test",
     "heroku-postbuild": "npm run build",
     "prestart": "npm run build",
-    "start": "node scripts/main.js",
-    "dev": "nodemon --watch src-ts --ext ts --exec \"npm run build && node scripts/main.js\""
+    "start": "node --env-file-if-exists=.env scripts/main.js",
+    "dev": "nodemon --watch src-ts --ext ts --exec \"npm run build && node --env-file-if-exists=.env scripts/main.js\""
   },
   "devDependencies": {
     "nodemon": "^2.0.19"

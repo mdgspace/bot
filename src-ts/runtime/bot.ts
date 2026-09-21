@@ -252,8 +252,9 @@ export class Bot extends EventEmitter implements Robot {
         inCommands = false;
         continue;
       }
-      if (inCommands && comment[1].trim())
-        this.commands.push(comment[1].trim());
+      const command = comment[1].trim();
+      if (inCommands && command && !/^none$/i.test(command))
+        this.commands.push(command);
     }
   }
 

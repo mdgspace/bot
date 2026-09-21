@@ -41,5 +41,5 @@ shift
 goto parse_arguments
 
 :launch
-node scripts\main.js
+node --env-file-if-exists=.env scripts\main.js
 exit /b %errorlevel%

@@ -37,7 +37,13 @@ Subscribe to these bot events:
 - `message.channels`
 - `user_change`
 
-Install the app to the workspace and copy its bot token and signing secret. Socket Mode is not used, so `SLACK_APP_TOKEN` is not required.
+Install the app to the workspace and copy its bot token and signing secret. Then invite the new bot to every public channel where it must receive events or post messages, including `#general` and any scheduled-message destinations:
+
+```text
+/invite @<new-app-bot-name>
+```
+
+Installing an app does not automatically join its bot to channels. With the documented `message.channels` event and `chat:write` scope, channel membership is required for the bot's normal event and posting flow. Socket Mode is not used, so `SLACK_APP_TOKEN` is not required.
 
 ## Configuration
 
