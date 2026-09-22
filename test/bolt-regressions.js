@@ -58,10 +58,24 @@ function fakeStorage(value = JSON.stringify(savedBrain())) {
     async write(value) { this.writes.push(value); this.value = value; },
     async close() { this.closes++; },
     async claim(...key) { const id = JSON.stringify(key); if (claims.has(id)) return false; claims.add(id); return true; },
+    async prepareInbox() {},
     async enqueue(item) { if (!claims.has(item.id) && !inbox.has(item.id)) inbox.set(item.id, structuredClone(item)); },
     async pendingEvents(limit = 64) { return [...inbox.values()].slice(0, limit); },
-    async completeEvent(id) { claims.add(id); inbox.delete(id); attempts.delete(id); },
-    async failEvent(id, reason, maximum) {
+    async readyEvents(limit = 64) {
+      const channels = new Set(), ready = [];
+      for (const item of inbox.values()) {
+        const channel = `${item.team}:${item.channel}`;
+        if (!channels.has(channel)) { channels.add(channel); ready.push(item); }
+        if (ready.length === limit) break;
+      }
+      return ready;
+    },
+    async channelEvents(head, limit = 16) {
+      return [...inbox.values()].filter(item => item.team === head.team && item.channel === head.channel).slice(0, limit);
+    },
+    async completeEvent(item) { claims.add(item.id); inbox.delete(item.id); attempts.delete(item.id); },
+    async failEvent(item, reason, maximum) {
+      const id = item.id;
       const count = (attempts.get(id) || 0) + 1; attempts.set(id, count);
       if (count < maximum) return { attempts: count, deadLettered: false };
       deadLetters.set(id, { event: inbox.get(id), attempts: count, reason });
@@ -223,6 +237,8 @@ test("Redis URL paths remain key prefixes in database zero with legacy env prece
   assert.equal(redisConfiguration({ REDIS_URL: "rediss://cache/team" }).storageKey, "team:storage");
   assert.equal(redisConfiguration({ REDIS_URL: "redis://cache/team?x=y" }).storageKey, "team?x=y:storage");
   assert.equal(redisConfiguration({ REDIS_URL: "redis://cache/a/../b" }).storageKey, "a/../b:storage");
+  assert.equal(redisConfiguration({ REDISTOGO_URL: "  ", REDISCLOUD_URL: "", REDIS_URL: "redis://cache/fallback" }).storageKey,
+    "fallback:storage");
   assert.throws(() => redisConfiguration({ REDIS_URL: "https://cache" }), /Expected/);
 });
 

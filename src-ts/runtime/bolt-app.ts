@@ -154,6 +154,9 @@ export function createBoltBot(options: BoltBotOptions) {
           }, () => persistence.save(), bot.logger, () => bot.emit("shutdown"));
           if (!await worker.acquire())
             throw new Error("Another bot instance owns the Redis event-worker lease");
+          // Scheduler indexes are disposable and rebuilt under the exclusive
+          // worker lease, including rows written by earlier Bolt releases.
+          await storage.prepareInbox();
           await persistence.load();
           await options.beforeScripts?.(brain, bot.logger);
           identity = await api.identity();

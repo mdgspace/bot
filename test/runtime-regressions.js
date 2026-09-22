@@ -541,7 +541,7 @@ test("synchronous HTTP setup errors use the callback contract", () => {
 
 test("inbox workers bound concurrency, preserve per-channel order and drain at shutdown", async () => {
   const pending = new Map();
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 32; i++) {
     const item = inboxEvent("T1", `Ev${i}`, { type: "message", channel: `C${i}`, ts: "1" });
     pending.set(item.id, item);
   }
@@ -552,8 +552,21 @@ test("inbox workers bound concurrency, preserve per-channel order and drain at s
   const seen = [];
   let lease;
   const storage = {
+    async prepareInbox() {},
     async pendingEvents(limit = 64) { return [...pending.values()].slice(0, limit); },
-    async completeEvent(id) { pending.delete(id); }, async failEvent() { return { attempts: 1, deadLettered: false }; },
+    async readyEvents(limit = 64) {
+      const channels = new Set(), ready = [];
+      for (const item of pending.values()) {
+        const channel = `${item.team}:${item.channel}`;
+        if (!channels.has(channel)) { channels.add(channel); ready.push(item); }
+        if (ready.length === limit) break;
+      }
+      return ready;
+    },
+    async channelEvents(head, limit = 16) {
+      return [...pending.values()].filter(item => item.team === head.team && item.channel === head.channel).slice(0, limit);
+    },
+    async completeEvent(item) { pending.delete(item.id); }, async failEvent() { return { attempts: 1, deadLettered: false }; },
     async acquireLease(owner) { lease = owner; return true; }, async renewLease(owner) { return owner === lease; },
     async releaseLease(owner) { if (lease === owner) lease = undefined; },
   };
@@ -564,12 +577,41 @@ test("inbox workers bound concurrency, preserve per-channel order and drain at s
   assert.equal(await worker.acquire(), true);
   await worker.tick();
   assert.equal(active, 8);
+  // Polling again while handlers remain active must not admit another eight.
+  await worker.tick(); await worker.tick();
+  assert.equal(active, 8);
   release(); await worker.settle();
   while (pending.size) { await worker.tick(); await worker.settle(); }
   await worker.stop();
   assert.equal(peak, 8);
   assert(seen.indexOf("C0:1") < seen.indexOf("C0:2"));
-  assert.equal(seen.length, 13);
+  assert.equal(seen.length, 33);
+});
+
+test("quiescing keeps the worker lease renewed until active work and persistence finish", async t => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const item = inboxEvent("T1", "Slow", { type: "message", channel: "C1", ts: "1" });
+  let releaseWork, lease, renewals = 0, released = false;
+  const gate = new Promise(resolve => { releaseWork = resolve; });
+  let pending = true;
+  const storage = {
+    async prepareInbox() {}, async pendingEvents() { return pending ? [item] : []; },
+    async readyEvents() { return pending ? [item] : []; }, async channelEvents() { return pending ? [item] : []; },
+    async completeEvent() { pending = false; }, async failEvent() { return { attempts: 1, deadLettered: false }; },
+    async acquireLease(owner) { lease = owner; return true; },
+    async renewLease(owner) { renewals++; return owner === lease; },
+    async releaseLease(owner) { if (owner === lease) { lease = undefined; released = true; } },
+  };
+  const worker = new InboxWorker(storage, async () => gate, async () => {}, { error: assert.fail });
+  await worker.acquire(); await worker.tick();
+  const stopping = worker.stop(false);
+  t.mock.timers.tick(20000); await nextTurn(); await nextTurn();
+  assert(renewals >= 1, "shutdown must continue renewing a lease beyond its TTL");
+  assert.equal(released, false);
+  releaseWork(); await stopping;
+  assert.equal(released, false, "stop(false) leaves the lease protecting the caller's final save");
+  await worker.release();
+  assert.equal(released, true);
 });
 
 test("inbox retry retains events on process/save/completion failures without repeating completed work", async t => {
@@ -579,7 +621,9 @@ test("inbox retry retains events on process/save/completion failures without rep
     let pending = true, fail = true, processed = 0, saved = 0;
     const errors = [];
     let attempts = 0, lease;
-    const storage = { async pendingEvents() { return pending ? [item] : []; }, async completeEvent() {
+    const storage = { async prepareInbox() {}, async pendingEvents() { return pending ? [item] : []; },
+    async readyEvents() { return pending ? [item] : []; }, async channelEvents() { return pending ? [item] : []; },
+    async completeEvent() {
       if (failure === "complete" && fail) { fail = false; throw new Error("storage down"); }
       pending = false;
     }, async failEvent() { return { attempts: ++attempts, deadLettered: false }; },
@@ -612,9 +656,13 @@ test("exhausted inbox retries move poison events to a bounded dead-letter path",
   const pending = new Map([[item.id, item]]), dead = new Map(), retries = new Map();
   let lease;
   const storage = {
+    async prepareInbox() {},
     async pendingEvents(limit = 64) { return [...pending.values()].slice(0, limit); },
-    async completeEvent(id) { pending.delete(id); },
-    async failEvent(id, reason, maximum) {
+    async readyEvents(limit = 64) { return [...pending.values()].slice(0, limit); },
+    async channelEvents(head, limit = 16) { return [...pending.values()].slice(0, limit); },
+    async completeEvent(item) { pending.delete(item.id); },
+    async failEvent(item, reason, maximum) {
+      const id = item.id;
       const attempts = (retries.get(id) || 0) + 1; retries.set(id, attempts);
       if (attempts < maximum) return { attempts, deadLettered: false };
       dead.set(id, { event: pending.get(id), reason, attempts }); pending.delete(id); retries.delete(id);
