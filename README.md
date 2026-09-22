@@ -7,7 +7,7 @@ The Mobile Development Group Slack bot runs on [Bolt for JavaScript](https://doc
 - Node.js 24.19.0 and npm 11.17.0 (`.nvmrc` selects the Node release)
 - Redis
 - A Slack app in the MDG workspace
-- A public HTTPS endpoint which forwards `/slack/events` to port `8080`
+- A public HTTPS endpoint which forwards `/slack/events` to the configured `PORT` (default `8080`)
 
 ## Slack app configuration
 
@@ -56,6 +56,8 @@ PORT=8080
 BOT_ADMIN_IDS=U0123456789
 ```
 
+The `redis://localhost:6379` value above is suitable only when Redis is reachable on the bot process's own host. In a container, `localhost` refers to that container; use a Redis hostname reachable from the container instead.
+
 `HUBOT_NAME` and `HUBOT_ALIAS` remain accepted as compatibility fallbacks; new deployments should use `BOT_NAME` and `BOT_ALIAS`. Existing command-specific `HUBOT_*` variables remain unchanged because their script behavior is outside this framework migration.
 
 The Redis URL selection order remains `REDISTOGO_URL`, `REDISCLOUD_URL`, `BOXEN_REDIS_URL`, then `REDIS_URL`. For compatibility with the existing brain, a URL path is treated as the key prefix in Redis database 0. For example, `redis://cache:6379/mdg` reads and writes `mdg:storage`. With no path, the key remains `hubot:storage`.
@@ -102,9 +104,11 @@ docker run --rm --env-file .env -p 127.0.0.1:9998:8080 mdg-bot:latest
 
 The reverse proxy must forward the public `/slack/events` URL to the published port without rewriting the request body. Bolt verifies the Slack signature before acknowledging an event.
 
+The supplied Docker and Compose configuration assumes `PORT=8080` inside the container. If that value is changed, update the container port mapping as well. With the supplied Compose file, the reverse proxy connects to host port `9998`, which forwards to container port `8080`.
+
 Production Compose does not provision Redis. Set `REDIS_URL` (or a higher-precedence provider variable) to a Redis host reachable **from the container**; `localhost` refers to the bot container, not the Docker host. Keep the existing Redis key prefix to preserve memory. Use Redis persistence and a non-evicting policy for the brain and inbox.
 
-Run **one active bot instance** against a brain, including during cutover; stop the old bot before starting the replacement. This is enforced by a renewable Redis worker lease: a concurrent instance fails startup with a clear error, and graceful shutdown retains the lease until the final brain save completes. Accepted message events are written to a Redis inbox before HTTP acknowledgement. Workers process bounded batches for up to eight channels independently, coalesce brain snapshots, retain transient failures with backoff, and replay pending work after restart. Directory-only `user_change` events are handled outside the command inbox and are rebuilt from Slack at startup.
+Run **one active bot deployment** against a brain. During the Hubot-to-Bolt cutover, stop the old Hubot process before starting Bolt; the old runtime does not participate in the new lease. After cutover, a renewable Redis worker lease prevents two Bolt instances from processing the same brain: a second instance fails startup with a clear error, and graceful shutdown retains the lease until the final brain save completes. One Bolt instance can still process up to eight channels concurrently while preserving order within each channel. Accepted message events are written to a Redis inbox before HTTP acknowledgement. Workers process bounded per-channel batches, coalesce brain snapshots, retain transient failures with backoff, and replay pending work after restart. Directory-only `user_change` events are handled outside the command inbox and are rebuilt from Slack at startup.
 
 After 12 failed processing attempts, an event is removed from the live queue and placed in the bounded `<storage-key>:dead-letter` Redis hash (oldest entries beyond 1,000 are discarded), with ordering timestamps in `<storage-key>:dead-letter-order`. Permanent Slack failures such as `missing_scope`, `is_archived`, `account_inactive`, and `invalid_auth` are logged and dropped immediately. Alert on these errors and inspect the dead-letter data when repairing configuration; replay is an explicit operator decision.
 
