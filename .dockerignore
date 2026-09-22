@@ -1,4 +1,7 @@
 .env
+.github
+.nvmrc
+test
 
 node_modules
 npm-debug.log

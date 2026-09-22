@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --omit=optional --legacy-peer-deps
+
+      - name: Typecheck and test
+        run: npm run check
+
+      - name: Build production image
+        run: docker build --tag bot:test .
+
+      - name: Smoke-test production image
+        run: >-
+          docker run --rm --entrypoint node bot:test -e
+          "const fs=require('fs'),path=require('path');
+          const files=fs.readdirSync('scripts').filter(file=>file.endsWith('.js'));
+          for(const file of files) require(path.resolve('scripts',file));
+          console.log('Loaded',files.length,'compiled modules');"

@@ -45,8 +45,8 @@ function assertOrdered(contents, commands) {
 }
 
 test("production installs include the TypeScript build toolchain", function () {
-  assert.strictEqual(packageJson.dependencies.typescript, "4.9.5");
-  assert.strictEqual(packageJson.dependencies["@types/node"], "^8.10.66");
+  assert.strictEqual(packageJson.dependencies.typescript, "5.9.3");
+  assert.strictEqual(packageJson.dependencies["@types/node"], "^24.0.0");
   assert.strictEqual(packageJson.devDependencies.typescript, undefined);
   assert.strictEqual(packageJson.devDependencies["@types/node"], undefined);
 });

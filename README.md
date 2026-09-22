@@ -8,8 +8,16 @@ This version is designed to be deployed on [Heroku][heroku]. This README was gen
 
 ### Testing Hubot Locally
 
-You can test your hubot by running the following.
+Use Node.js 24.19.0 and npm 11.17.0. The repository's `.nvmrc` selects the
+supported Node.js release when using nvm.
 
+Install the locked dependencies, compile the TypeScript sources, and start the
+shell adapter with:
+
+    % nvm install
+    % nvm use
+    % npm ci --omit=optional
+    % npm run build
     % bin/hubot
 
 You'll see some start up output about where your scripts come from and a

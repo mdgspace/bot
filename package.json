@@ -15,7 +15,7 @@
     "url": "https://github.com/sdsmdg/hubot.git"
   },
   "dependencies": {
-    "@types/node": "^8.10.66",
+    "@types/node": "^24.0.0",
     "follow-redirects": "^1.0.0",
     "htmlparser": "1.7.7",
     "hubot": "^14.1.0",
@@ -28,16 +28,19 @@
     "node-cron": "^1.1.2",
     "node-time-ago": "^1.0.0",
     "soupselect": "^0.2.0",
-    "typescript": "4.9.5"
+    "typescript": "5.9.3"
   },
   "engines": {
-    "node": ">=8.10.0 <9",
-    "npm": ">=3.5.2"
+    "node": ">=24 <25",
+    "npm": ">=11 <12"
   },
+  "packageManager": "npm@11.17.0",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node test/migration-regressions.js && node test/launcher-regressions.js",
+    "check": "npm run typecheck && npm test",
+    "heroku-postbuild": "npm run build",
     "start": "./bin/hubot -n ${HUBOT_NAME:-bot} -a slack",
     "dev": "nodemon --watch src-ts --ext ts --exec \"npm run build && ./node_modules/.bin/hubot -n bot -a shell\""
   },
