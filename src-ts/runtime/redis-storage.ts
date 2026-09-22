@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { createClient } from "redis";
 import type { BrainStorage } from "./brain";
-import { inboxChannelKey, type EventInbox, type FailureResult, type InboxEvent } from "./event-inbox";
+import { inboxChannelKey, LeaseLostError, type EventInbox, type FailureResult, type InboxEvent } from "./event-inbox";
 
 export interface EventClaims {
   claim(team: string, channel: string, timestamp: string): Promise<boolean>;
@@ -10,6 +10,7 @@ export interface EventClaims {
 export interface BotStorage extends BrainStorage, EventClaims, EventInbox {
   readonly ready: boolean;
   connect(): Promise<void>;
+  writeIfLease(serialized: string, owner: string): Promise<void>;
 }
 
 export function redisConfiguration(env: NodeJS.ProcessEnv) {
@@ -67,6 +68,17 @@ export class RedisStorage implements BotStorage {
   }
   read(): Promise<string | null> { return this.client.get(this.storageKey); }
   async write(serialized: string): Promise<void> { await this.client.set(this.storageKey, serialized); }
+
+  async writeIfLease(serialized: string, owner: string): Promise<void> {
+    const written = Number(await this.client.eval(`
+      if redis.call('GET', KEYS[2]) ~= ARGV[1] then return 0 end
+      redis.call('SET', KEYS[1], ARGV[2])
+      return 1`, {
+      keys: [this.storageKey, `${this.storageKey}:inbox-worker`],
+      arguments: [owner, serialized],
+    }));
+    if (written !== 1) throw new LeaseLostError();
+  }
 
   async claim(team: string, channel: string, timestamp: string): Promise<boolean> {
     const id = createHash("sha256").update(JSON.stringify([team, channel, timestamp])).digest("hex");
@@ -207,9 +219,10 @@ export class RedisStorage implements BotStorage {
     return result.map(value => JSON.parse(value) as InboxEvent);
   }
 
-  async completeEvent(event: InboxEvent): Promise<void> {
+  async completeEvent(event: InboxEvent, owner: string): Promise<void> {
     const id = event.id;
     const result = Number(await this.client.eval(`
+      if redis.call('GET', KEYS[11]) ~= ARGV[3] then return -1 end
       if redis.call('HGET', KEYS[5], ARGV[2]) ~= ARGV[1] then return 0 end
       local next = redis.call('HGET', KEYS[7], ARGV[1])
       local nextScore = next and redis.call('HGET', KEYS[8], next)
@@ -233,15 +246,17 @@ export class RedisStorage implements BotStorage {
       keys: [`${this.storageKey}:inbox`, `${this.storageKey}:inbox-order`, `${this.storageKey}:slack-event:${id}`,
         `${this.storageKey}:inbox-retries`, `${this.storageKey}:inbox-heads`, `${this.storageKey}:inbox-tails`,
         `${this.storageKey}:inbox-next`, `${this.storageKey}:inbox-scores`, `${this.storageKey}:inbox-ready`,
-        `${this.storageKey}:inbox-delayed`],
-      arguments: [id, inboxChannelKey(event)],
+        `${this.storageKey}:inbox-delayed`, `${this.storageKey}:inbox-worker`],
+      arguments: [id, inboxChannelKey(event), owner],
     }));
+    if (result === -1) throw new LeaseLostError();
     if (result !== 1) throw new Error(`Inbox event ${id} is no longer the channel head`);
   }
 
-  async failEvent(event: InboxEvent, reason: string, maxAttempts: number): Promise<FailureResult> {
+  async failEvent(event: InboxEvent, reason: string, maxAttempts: number, owner: string): Promise<FailureResult> {
     const id = event.id;
     const result = await this.client.eval(`
+      if redis.call('GET', KEYS[13]) ~= ARGV[6] then return {-1, 0, 0} end
       local payload = redis.call('HGET', KEYS[1], ARGV[1])
       if not payload or redis.call('HGET', KEYS[7], ARGV[5]) ~= ARGV[1] then return {0, 0, 0} end
       local attempts = redis.call('HINCRBY', KEYS[3], ARGV[1], 1)
@@ -284,9 +299,11 @@ export class RedisStorage implements BotStorage {
       keys: [`${this.storageKey}:inbox`, `${this.storageKey}:inbox-order`, `${this.storageKey}:inbox-retries`,
         `${this.storageKey}:dead-letter`, `${this.storageKey}:dead-letter-order`, `${this.storageKey}:slack-event:${id}`,
         `${this.storageKey}:inbox-heads`, `${this.storageKey}:inbox-tails`, `${this.storageKey}:inbox-next`,
-        `${this.storageKey}:inbox-scores`, `${this.storageKey}:inbox-ready`, `${this.storageKey}:inbox-delayed`],
-      arguments: [id, reason, String(maxAttempts), String(Date.now()), inboxChannelKey(event)],
+        `${this.storageKey}:inbox-scores`, `${this.storageKey}:inbox-ready`, `${this.storageKey}:inbox-delayed`,
+        `${this.storageKey}:inbox-worker`],
+      arguments: [id, reason, String(maxAttempts), String(Date.now()), inboxChannelKey(event), owner],
     }) as [number, number, number];
+    if (Number(result[0]) === -1) throw new LeaseLostError();
     return { attempts: Number(result[0]), deadLettered: Number(result[1]) === 1,
       ...(Number(result[2]) ? { retryAt: Number(result[2]) } : {}) };
   }

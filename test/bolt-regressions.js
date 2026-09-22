@@ -12,6 +12,7 @@ const { RedisStorage, redisConfiguration, createRedisStorage } = require("../scr
 const { SlackDirectory, SlackEvents, SlackTransport, normalizeSlackText } = require("../scripts/runtime/slack-adapter");
 const { slackApi } = require("../scripts/runtime/slack-api");
 const { createBoltBot, boltConfiguration } = require("../scripts/runtime/bolt-app");
+const { LeaseLostError } = require("../scripts/runtime/event-inbox");
 
 // Only loopback HTTP is allowed. Slack and Redis are always injected fakes.
 before(() => {
@@ -56,6 +57,10 @@ function fakeStorage(value = JSON.stringify(savedBrain())) {
     async connect() { this.connects++; },
     async read() { return this.value; },
     async write(value) { this.writes.push(value); this.value = value; },
+    async writeIfLease(value, owner) {
+      if (lease !== owner) throw new LeaseLostError();
+      await this.write(value);
+    },
     async close() { this.closes++; },
     async claim(...key) { const id = JSON.stringify(key); if (claims.has(id)) return false; claims.add(id); return true; },
     async prepareInbox() {},
@@ -73,8 +78,12 @@ function fakeStorage(value = JSON.stringify(savedBrain())) {
     async channelEvents(head, limit = 16) {
       return [...inbox.values()].filter(item => item.team === head.team && item.channel === head.channel).slice(0, limit);
     },
-    async completeEvent(item) { claims.add(item.id); inbox.delete(item.id); attempts.delete(item.id); },
-    async failEvent(item, reason, maximum) {
+    async completeEvent(item, owner) {
+      if (lease !== owner) throw new LeaseLostError();
+      claims.add(item.id); inbox.delete(item.id); attempts.delete(item.id);
+    },
+    async failEvent(item, reason, maximum, owner) {
+      if (lease !== owner) throw new LeaseLostError();
       const id = item.id;
       const count = (attempts.get(id) || 0) + 1; attempts.set(id, count);
       if (count < maximum) return { attempts: count, deadLettered: false };
@@ -85,6 +94,7 @@ function fakeStorage(value = JSON.stringify(savedBrain())) {
     async acquireLease(owner) { if (lease) return false; lease = owner; return true; },
     async renewLease(owner) { return lease === owner; },
     async releaseLease(owner) { if (lease === owner) lease = undefined; },
+    stealLease() { lease = "replacement"; },
   };
 }
 function setup(overrides = {}) {
@@ -630,6 +640,48 @@ test("shutdown drains pending handlers and sends before the final brain save", a
   assert.equal(JSON.parse(service.storage.value)._private.finished, true);
   assert.equal(service.api.posts[0].text, "done");
   assert.equal(service.storage.closes, 1);
+});
+
+test("shutdown cannot overwrite the successor's brain after losing the worker lease", async () => {
+  const storage = fakeStorage();
+  const original = storage.value;
+  const service = setup({ storage });
+  await service.initialize();
+  service.brain.set("stale", true);
+  storage.stealLease();
+  await service.stop();
+  assert.equal(storage.value, original);
+  assert.equal(storage.writes.length, 0);
+  assert.equal(storage.closes, 1);
+});
+
+test("an active event cannot save or complete after another worker takes the lease", async () => {
+  let entered, release;
+  const started = new Promise(resolve => { entered = resolve; });
+  const blocked = new Promise(resolve => { release = resolve; });
+  const storage = fakeStorage();
+  const original = storage.value;
+  const service = setup({ storage, register(bot) {
+    bot.respond(/slow$/, async () => {
+      entered(); await blocked;
+      bot.brain.set("stale", true);
+    });
+  } });
+  await service.initialize();
+  await service.app.processEvent({ body: { type: "event_callback", team_id: "T1", event_id: "EvLeaseLoss",
+    event: event({ text: "bot slow" }) }, ack: async () => {} });
+  const draining = service.drainEvents();
+  await started;
+  storage.stealLease();
+  const stopping = service.stop();
+  release();
+  await draining;
+  await stopping;
+  assert.equal(storage.value, original);
+  assert.equal(storage.writes.length, 0);
+  assert.equal(storage.inbox.size, 1);
+  assert.equal(storage.claims.size, 0);
+  assert.equal(storage.closes, 1);
 });
 
 test("startup refreshes paginated users without deleting old users or their script data", async t => {

@@ -197,17 +197,30 @@ test("sensitive commands fail closed without configured admins and reject chat r
     registerEnvironmentCommands(bot);
     require("../scripts/storage")(bot);
     require("../scripts/ping")(bot);
+    require("../scripts/events")(bot);
     let stopped = false;
     bot.on("shutdown", () => { stopped = true; });
     const user = { id: "U1", name: "alice", room: "C1", roles: ["admin", "maintainer"], slack: { is_bot: admin === "U1" } };
-    for (const text of ["env current", "env file", "env load --filename=secret", "env flush all", "show storage", "show users", "die"])
+    for (const text of ["env current", "env file", "env load --filename=secret", "env flush all", "show storage", "show users", "die", "fake event shutdown"])
       await bot.receive(new TextMessage(user, `bot ${text}`, "C1"));
     await bot.flush();
-    assert.equal(sent.length, 7);
+    assert.equal(sent.length, 8);
     assert(sent.every(item => item.messages[0].includes("restricted")));
     assert.equal(stopped, false);
     assert.equal(bot.brain.get("hubot-env"), null);
   }
+});
+
+test("only a configured admin can emit a fake event", async t => {
+  preserveEnvironment(t, ["BOT_ADMIN_IDS"]);
+  process.env.BOT_ADMIN_IDS = "U1";
+  const { bot, sent } = botFixture();
+  require("../scripts/events")(bot);
+  let emitted = 0;
+  bot.on("debug", () => { emitted++; });
+  await command(bot, "bot fake event debug");
+  assert.equal(emitted, 1);
+  assert(sent.some(item => item.messages[0].includes("fake event 'debug' triggered")));
 });
 
 test("admin diagnostics redact URL/key credentials and user emails without modifying memory", async t => {

@@ -127,7 +127,7 @@ The former `hubot-env` commands are implemented locally and keep the existing `_
 - `bot env load --filename=FILE [--dry-run]`
 - `bot env flush all [--dry-run]`
 
-All `env` commands, `show users`, `show storage`, and `die` require a human Slack user ID in the operator-configured, comma-separated `BOT_ADMIN_IDS`. With no IDs configured they are disabled. Chat-editable roles do not grant this access. `die` requests graceful shutdown; the deployment's restart policy still applies.
+All `env` commands, `show users`, `show storage`, `fake event`, and `die` require a human Slack user ID in the operator-configured, comma-separated `BOT_ADMIN_IDS`. With no IDs configured they are disabled. Chat-editable roles do not grant this access. `die` requests graceful shutdown; the deployment's restart policy still applies.
 
 Set `HUBOT_ENV_BASE_PATH` to a dedicated directory containing only files administrators may load. `env load` rejects paths and symlinks outside it. Administrator IDs, the base directory, and Node startup settings cannot be changed through persisted environment commands; change those in deployment configuration and restart.
 

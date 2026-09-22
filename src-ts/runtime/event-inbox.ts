@@ -20,6 +20,10 @@ export interface FailureResult {
   retryAt?: number;
 }
 
+export class LeaseLostError extends Error {
+  constructor() { super("Redis event-worker lease is no longer owned by this process"); }
+}
+
 export interface EventInbox {
   /** Rebuilds disposable scheduler indexes from the durable ordered inbox. */
   prepareInbox(): Promise<void>;
@@ -28,8 +32,8 @@ export interface EventInbox {
   pendingEvents(limit?: number): Promise<InboxEvent[]>;
   readyEvents(limit?: number): Promise<InboxEvent[]>;
   channelEvents(head: InboxEvent, limit?: number): Promise<InboxEvent[]>;
-  completeEvent(event: InboxEvent): Promise<void>;
-  failEvent(event: InboxEvent, reason: string, maxAttempts: number): Promise<FailureResult>;
+  completeEvent(event: InboxEvent, owner: string): Promise<void>;
+  failEvent(event: InboxEvent, reason: string, maxAttempts: number, owner: string): Promise<FailureResult>;
   acquireLease(owner: string, ttlSeconds: number): Promise<boolean>;
   renewLease(owner: string, ttlSeconds: number): Promise<boolean>;
   releaseLease(owner: string): Promise<void>;
@@ -59,12 +63,16 @@ export class InboxWorker {
   private retries = new Map<string, { attempts: number; after: number }>();
   private readonly leaseOwner = randomUUID();
   private ownsLease = false;
+  private leaseLost = false;
   private leaseExpiresAt = 0;
 
   constructor(private readonly storage: EventInbox,
     private readonly process: (event: InboxEvent) => Promise<void>,
     private readonly save: () => Promise<void>, private readonly logger: Logger,
     private readonly onLeaseLost: () => void = () => {}) {}
+
+  get leaseToken(): string { return this.leaseOwner; }
+  get hasLease(): boolean { return this.ownsLease && !this.leaseLost; }
 
   async acquire(): Promise<boolean> {
     if (this.quiescing) return false;
@@ -79,8 +87,12 @@ export class InboxWorker {
   }
 
   async confirmLease(): Promise<boolean> {
-    if (!this.ownsLease) return false;
-    this.ownsLease = await this.storage.renewLease(this.leaseOwner, LEASE_SECONDS);
+    if (!this.hasLease) return false;
+    const renewed = await this.storage.renewLease(this.leaseOwner, LEASE_SECONDS);
+    // A concurrent lease check may have already established that ownership
+    // was lost while this request was in flight.
+    if (!this.hasLease) return false;
+    this.ownsLease = renewed;
     this.leaseExpiresAt = this.ownsLease ? Date.now() + LEASE_SECONDS * 1000 : 0;
     return this.ownsLease;
   }
@@ -103,10 +115,17 @@ export class InboxWorker {
     } catch (error) {
       this.logger.error("Cannot renew event worker Redis lease; stopping event processing", error);
     }
+    this.markLeaseLost();
+  }
+
+  private markLeaseLost(): void {
+    if (this.leaseLost) return;
+    this.leaseLost = true;
     this.ownsLease = false;
     this.leaseExpiresAt = 0;
     this.quiescing = true;
     if (this.timer) clearInterval(this.timer);
+    if (this.leaseTimer) clearInterval(this.leaseTimer);
     this.onLeaseLost();
   }
 
@@ -122,6 +141,7 @@ export class InboxWorker {
       if (available <= 0) return;
       const heads = await this.storage.readyEvents(INBOX_READ_LIMIT);
       for (const head of heads) {
+        if (!this.hasLease || this.quiescing) break;
         const channel = inboxChannelKey(head);
         if (available <= 0) break;
         if (this.active.has(channel)) continue;
@@ -129,6 +149,7 @@ export class InboxWorker {
         // guard also prevents a hot loop if persisting that retry failed.
         if ((this.retries.get(head.id)?.after ?? 0) > Date.now()) continue;
         const items = await this.storage.channelEvents(head, INBOX_CHANNEL_BATCH);
+        if (!this.hasLease || this.quiescing) break;
         if (!items.length) continue;
         const task = this.runBatch(items).finally(() => {
           this.active.delete(channel);
@@ -147,12 +168,14 @@ export class InboxWorker {
     const succeeded: InboxEvent[] = [];
     let failed: { item: InboxEvent; error: unknown } | undefined;
     for (const item of items) {
+      if (!this.hasLease) return;
       if (this.completed.has(item.id)) {
         succeeded.push(item);
         continue;
       }
       try {
         await this.process(item);
+        if (!this.hasLease) return;
         this.completed.add(item.id);
         succeeded.push(item);
       } catch (error) {
@@ -162,36 +185,41 @@ export class InboxWorker {
     }
 
     if (succeeded.length) {
+      if (!this.hasLease) return;
       try {
         // One durable snapshot covers the successful ordered batch.
         await this.save();
       } catch (error) {
+        if (error instanceof LeaseLostError) { this.markLeaseLost(); return; }
         // The first item remains the queue head; retrying only that head avoids
         // corrupting channel order while all completed callbacks stay cached.
         await this.recordFailure(succeeded[0], error);
         return;
       }
       for (const item of succeeded) {
+        if (!this.hasLease) return;
         try {
-          await this.storage.completeEvent(item);
+          await this.storage.completeEvent(item, this.leaseOwner);
           this.completed.delete(item.id);
           this.retries.delete(item.id);
         } catch (error) {
+          if (error instanceof LeaseLostError) { this.markLeaseLost(); return; }
           await this.recordFailure(item, error);
           // Keep later completed items pending so their Redis ordering remains intact.
           break;
         }
       }
     }
-    if (failed) await this.recordFailure(failed.item, failed.error);
+    if (failed && this.hasLease) await this.recordFailure(failed.item, failed.error);
   }
 
   private async recordFailure(item: InboxEvent, error: unknown): Promise<void> {
+    if (!this.hasLease) return;
     const reason = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
     let attempts = (this.retries.get(item.id)?.attempts ?? 0) + 1;
     let after = Date.now() + Math.min(5000 * 2 ** Math.min(attempts - 1, 6), 300000);
     try {
-      const result = await this.storage.failEvent(item, reason.slice(0, 1000), MAX_EVENT_ATTEMPTS);
+      const result = await this.storage.failEvent(item, reason.slice(0, 1000), MAX_EVENT_ATTEMPTS, this.leaseOwner);
       attempts = result.attempts || attempts;
       after = result.retryAt ?? after;
       if (result.deadLettered) {
@@ -201,6 +229,7 @@ export class InboxWorker {
         return;
       }
     } catch (storageError) {
+      if (storageError instanceof LeaseLostError) { this.markLeaseLost(); return; }
       this.logger.error(`Cannot persist retry state for event ${item.id}`, storageError);
     }
     this.retries.set(item.id, { attempts, after });

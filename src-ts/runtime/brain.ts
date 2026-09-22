@@ -106,6 +106,7 @@ export class BrainPersistence {
   private writes: Promise<void> = Promise.resolve();
   private persistedSnapshot?: string;
   private coalescedSave?: Promise<void>;
+  private abandoned = false;
 
   constructor(
     private readonly brain: Brain,
@@ -141,7 +142,7 @@ export class BrainPersistence {
   }
 
   async save(): Promise<void> {
-    if (!this.loaded || this.closing)
+    if (!this.loaded || this.closing || this.abandoned)
       throw new Error("Brain storage is not ready for saves");
     // Concurrent channel workers share one snapshot/write. The short window is
     // outside Slack's acknowledgement path and dramatically reduces burst I/O.
@@ -152,6 +153,7 @@ export class BrainPersistence {
           // Calls arriving while this snapshot is being written must schedule
           // another snapshot rather than completing against stale data.
           if (this.coalescedSave === scheduled) this.coalescedSave = undefined;
+          if (this.abandoned) return;
           return this.enqueueSave();
         });
       this.coalescedSave = scheduled;
@@ -162,12 +164,18 @@ export class BrainPersistence {
   private enqueueSave(): Promise<void> {
     const snapshot = JSON.stringify(this.brain.data);
     const write = this.writes.then(async () => {
-      if (snapshot === this.persistedSnapshot) return;
+      if (this.abandoned || snapshot === this.persistedSnapshot) return;
       await this.storage.write(snapshot);
       this.persistedSnapshot = snapshot;
     });
     this.writes = write.catch(() => {});
     return write;
+  }
+
+  /** Discard local memory after losing the exclusive worker lease. */
+  abandon(): void {
+    this.abandoned = true;
+    if (this.interval) clearInterval(this.interval);
   }
 
   close(closeStorage = true): Promise<void> {
@@ -179,8 +187,8 @@ export class BrainPersistence {
       if (this.interval) clearInterval(this.interval);
       this.closing = (async () => {
         try {
-          await this.coalescedSave;
-          if (this.loaded) await this.enqueueSave();
+          await this.coalescedSave?.catch(error => { if (!this.abandoned) throw error; });
+          if (this.loaded && !this.abandoned) await this.enqueueSave();
         } finally {
           await this.writes;
           if (closeStorage) await this.storage.close();

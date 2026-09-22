@@ -80,7 +80,15 @@ export function createBoltBot(options: BoltBotOptions) {
   const api = options.api ?? slackApi(app.client, config.token);
   const storage = options.storage ?? createRedisStorage(options.env ?? process.env, error => app.logger.error("Redis connection error", error.message));
   const brain = new Brain();
-  const persistence = new BrainPersistence(brain, storage, error => app.logger.error("Brain save failed", error));
+  let worker: InboxWorker | undefined;
+  const persistence = new BrainPersistence(brain, {
+    read: () => storage.read(),
+    write: async serialized => {
+      if (!worker) throw new Error("Event worker is not ready for brain persistence");
+      await storage.writeIfLease(serialized, worker.leaseToken);
+    },
+    close: () => storage.close(),
+  }, error => app.logger.error("Brain save failed", error));
   const directory = new SlackDirectory(api, brain);
 
   // Slack's route is installed first with its own raw-body signature verifier.
@@ -96,7 +104,6 @@ export function createBoltBot(options: BoltBotOptions) {
     },
   });
   let events: SlackEvents | undefined;
-  let worker: InboxWorker | undefined;
   let initialization: Promise<void> | undefined;
   let stopping: Promise<void> | undefined;
   let listening = false;
@@ -151,7 +158,11 @@ export function createBoltBot(options: BoltBotOptions) {
             // Inbox completion supplies deduplication; never pre-claim work
             // that must remain replayable after a crash.
             await events!.receive(item.team, item.event as import("./slack-adapter").SlackMessageEvent, false);
-          }, () => persistence.save(), bot.logger, () => bot.emit("shutdown"));
+          }, () => persistence.save(), bot.logger, () => {
+            ready = false;
+            persistence.abandon();
+            bot.emit("shutdown");
+          });
           if (!await worker.acquire())
             throw new Error("Another bot instance owns the Redis event-worker lease");
           // Scheduler indexes are disposable and rebuilt under the exclusive
@@ -213,9 +224,25 @@ export function createBoltBot(options: BoltBotOptions) {
           // load a stale snapshot during graceful handoff.
           await worker?.stop(false);
           await events?.stop();
-          await bot.flush();
+          const confirmOwnership = async (): Promise<boolean> => {
+            try { return !!worker && await worker.confirmLease(); }
+            catch (error) {
+              bot.logger.error("Cannot confirm Redis worker lease during shutdown", error);
+              return false;
+            }
+          };
+          let stillOwned = await confirmOwnership();
+          if (!stillOwned) persistence.abandon();
           try {
-            if (events) await persistence.close(false);
+            if (stillOwned) await bot.flush();
+            if (events) {
+              // A renewal during shutdown also detects expiry while handlers
+              // or outbound sends were draining. Never save their local state
+              // after another process may have acquired the brain.
+              if (stillOwned) stillOwned = await confirmOwnership();
+              if (!stillOwned) persistence.abandon();
+              await persistence.close(false);
+            }
             else await storage.close();
           } finally {
             try { await worker?.release(); }
