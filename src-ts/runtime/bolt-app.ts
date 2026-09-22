@@ -128,7 +128,12 @@ export function createBoltBot(options: BoltBotOptions) {
   };
   app.event("message", async ({ event, body }) => { await accept(body.event_id, event); });
   app.event("app_mention", async ({ event, body }) => { await accept(body.event_id, event); });
-  app.event("user_change", async ({ event, body }) => { await accept(body.event_id, event); });
+  // Directory state is rebuilt at startup and autosaved normally. Keeping
+  // profile churn out of the durable command inbox avoids N full brain writes
+  // during workspace-wide profile synchronization.
+  app.event("user_change", async ({ event }) => {
+    if (event.user?.id) directory.updateUser(event.user);
+  });
   app.error(async error => {
     bot.logger.error("Slack event processing failed", error);
     // Bolt otherwise treats a resolved global error handler as recovery and
@@ -142,6 +147,13 @@ export function createBoltBot(options: BoltBotOptions) {
       initialization = (async () => {
         try {
           await storage.connect();
+          worker = new InboxWorker(storage, async item => {
+            // Inbox completion supplies deduplication; never pre-claim work
+            // that must remain replayable after a crash.
+            await events!.receive(item.team, item.event as import("./slack-adapter").SlackMessageEvent, false);
+          }, () => persistence.save(), bot.logger, () => bot.emit("shutdown"));
+          if (!await worker.acquire())
+            throw new Error("Another bot instance owns the Redis event-worker lease");
           await persistence.load();
           await options.beforeScripts?.(brain, bot.logger);
           identity = await api.identity();
@@ -149,21 +161,15 @@ export function createBoltBot(options: BoltBotOptions) {
           await options.register(bot);
           brain.emit("loaded", brain.data);
           events = new SlackEvents(bot, api, directory, storage, identity);
-          worker = new InboxWorker(storage, async item => {
-            if (item.event.type === "user_change") {
-              if (item.event.user?.id) directory.updateUser(item.event.user);
-            } else {
-              // Inbox completion supplies deduplication; never pre-claim work
-              // that must remain replayable after a crash.
-              await events!.receive(item.team, item.event as import("./slack-adapter").SlackMessageEvent, false);
-            }
-          }, () => persistence.save(), bot.logger);
+          if (!await worker.confirmLease())
+            throw new Error("Lost the Redis event-worker lease during startup");
           persistence.start();
           ready = true;
           worker.start();
         } catch (error) {
           identity = undefined;
           // Never save after an incomplete startup or corrupt memory read.
+          await worker?.stop();
           await storage.close();
           throw error;
         }
@@ -200,13 +206,21 @@ export function createBoltBot(options: BoltBotOptions) {
           if (serverStart) await serverStart.then(() => app.stop(), () => {});
           listening = false;
         } finally {
-          await worker?.stop();
+          // Keep the lease through the final brain save so a successor cannot
+          // load a stale snapshot during graceful handoff.
+          await worker?.stop(false);
           await events?.stop();
           await bot.flush();
           try {
-            if (events) await persistence.close();
+            if (events) await persistence.close(false);
             else await storage.close();
-          } finally { identity = undefined; }
+          } finally {
+            try { await worker?.release(); }
+            finally {
+              if (events) await storage.close();
+              identity = undefined;
+            }
+          }
         }
       })();
     }
@@ -215,11 +229,11 @@ export function createBoltBot(options: BoltBotOptions) {
 
   async function drainEvents(): Promise<void> {
     // Diagnostic/test drain: do not spin on events awaiting retry backoff.
-    let previous = Infinity;
+    let previous: string | undefined;
     while (worker) {
-      const count = (await storage.pendingEvents()).length;
-      if (!count || count >= previous) break;
-      previous = count;
+      const first = (await storage.pendingEvents(1))[0]?.id;
+      if (!first || first === previous) break;
+      previous = first;
       await worker.tick();
       await worker.settle();
     }

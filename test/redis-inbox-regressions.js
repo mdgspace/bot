@@ -17,6 +17,7 @@ test("real Redis atomically accepts duplicates, retains pending work and remembe
   const first = inboxEvent("T1", "Ev1", { type: "message", channel: "C1", ts: "1", text: "hello" });
   const overlap = inboxEvent("T1", "Ev2", { type: "app_mention", channel: "C1", ts: "1", text: "hello" });
   const second = inboxEvent("T1", "Ev3", { type: "message", channel: "C1", ts: "2" });
+  const doomed = inboxEvent("T1", "Ev4", { type: "message", channel: "C2", ts: "3" });
   const client = createClient({ url: url.toString(), socket: { connectTimeout: 3000, reconnectStrategy: false } });
   client.on("error", () => {});
   const storage = new RedisStorage(client, key);
@@ -25,7 +26,8 @@ test("real Redis atomically accepts duplicates, retains pending work and remembe
     try {
       if (!client.isOpen) await client.connect();
       await client.del([key, `${key}:inbox`, `${key}:inbox-order`, `${key}:inbox-sequence`,
-        `${key}:slack-event:${first.id}`, `${key}:slack-event:${second.id}`]);
+        `${key}:inbox-retries`, `${key}:dead-letter`, `${key}:dead-letter-order`, `${key}:inbox-worker`,
+        `${key}:slack-event:${first.id}`, `${key}:slack-event:${second.id}`, `${key}:slack-event:${doomed.id}`]);
     } finally { if (client.isOpen) await client.close(); }
   });
   await storage.write('{"users":{},"_private":{"keep":true}}');
@@ -42,5 +44,26 @@ test("real Redis atomically accepts duplicates, retains pending work and remembe
   assert.deepEqual(await storage.pendingEvents(), [second]);
   await storage.completeEvent(second.id);
   assert.deepEqual(await storage.pendingEvents(), []);
+  await storage.enqueue(doomed);
+  assert.deepEqual(await storage.failEvent(doomed.id, "still retrying", 2), { attempts: 1, deadLettered: false });
+  assert.deepEqual(await storage.failEvent(doomed.id, "missing_scope", 2), { attempts: 2, deadLettered: true });
+  assert.deepEqual(await storage.pendingEvents(), []);
+  const dead = JSON.parse(await client.hGet(`${key}:dead-letter`, doomed.id));
+  assert.equal(dead.event.id, doomed.id);
+  assert.equal(dead.attempts, 2);
+  assert.equal(dead.reason, "missing_scope");
+  assert.equal(await storage.acquireLease("owner-one", 15), true);
+  assert.equal(await storage.acquireLease("owner-two", 15), false);
+  assert.equal(await storage.renewLease("owner-two", 15), false);
+  assert.equal(await storage.renewLease("owner-one", 15), true);
+  await storage.releaseLease("owner-two");
+  assert.equal(await storage.acquireLease("owner-two", 15), false);
+  await storage.releaseLease("owner-one");
+  assert.equal(await storage.acquireLease("owner-two", 15), true);
+  await storage.releaseLease("owner-two");
+  const backlog = Array.from({ length: 70 }, (_, i) => inboxEvent("T1", `Backlog${i}`,
+    { type: "message", channel: `C${i}`, ts: String(100 + i) }));
+  for (const item of backlog) await storage.enqueue(item);
+  assert.equal((await storage.pendingEvents(10)).length, 10);
   assert.deepEqual(JSON.parse(await storage.read()), { users: {}, _private: { keep: true } });
 });

@@ -48,16 +48,29 @@ function fakeApi() {
 function fakeStorage(value = JSON.stringify(savedBrain())) {
   const claims = new Set();
   const inbox = new Map();
+  const attempts = new Map();
+  const deadLetters = new Map();
+  let lease;
   return {
-    connects: 0, closes: 0, writes: [], claims, inbox, value, ready: true,
+    connects: 0, closes: 0, writes: [], claims, inbox, attempts, deadLetters, value, ready: true,
     async connect() { this.connects++; },
     async read() { return this.value; },
     async write(value) { this.writes.push(value); this.value = value; },
     async close() { this.closes++; },
     async claim(...key) { const id = JSON.stringify(key); if (claims.has(id)) return false; claims.add(id); return true; },
     async enqueue(item) { if (!claims.has(item.id) && !inbox.has(item.id)) inbox.set(item.id, structuredClone(item)); },
-    async pendingEvents() { return [...inbox.values()]; },
-    async completeEvent(id) { claims.add(id); inbox.delete(id); },
+    async pendingEvents(limit = 64) { return [...inbox.values()].slice(0, limit); },
+    async completeEvent(id) { claims.add(id); inbox.delete(id); attempts.delete(id); },
+    async failEvent(id, reason, maximum) {
+      const count = (attempts.get(id) || 0) + 1; attempts.set(id, count);
+      if (count < maximum) return { attempts: count, deadLettered: false };
+      deadLetters.set(id, { event: inbox.get(id), attempts: count, reason });
+      inbox.delete(id); attempts.delete(id); claims.add(id);
+      return { attempts: count, deadLettered: true };
+    },
+    async acquireLease(owner) { if (lease) return false; lease = owner; return true; },
+    async renewLease(owner) { return lease === owner; },
+    async releaseLease(owner) { if (lease === owner) lease = undefined; },
   };
 }
 function setup(overrides = {}) {
@@ -122,6 +135,10 @@ test("one slow channel does not block inbound processing in another", async () =
 test("permanent entity lookup failures are dropped while transient failures propagate", async () => {
   for (const [method, code, overrides] of [
     ["channelInfo", "channel_not_found", {}],
+    ["channelInfo", "missing_scope", {}],
+    ["channelInfo", "is_archived", {}],
+    ["channelInfo", "account_inactive", {}],
+    ["channelInfo", "invalid_auth", {}],
     ["userInfo", "user_not_found", { user: "UUNKNOWN" }],
     ["botInfo", "bot_not_found", { user: undefined, bot_id: "BMISSING", subtype: "bot_message" }],
   ]) {
@@ -212,6 +229,18 @@ test("Redis URL paths remain key prefixes in database zero with legacy env prece
 test("creating the real Redis wrapper does not connect", async () => {
   const storage = createRedisStorage({}, assert.fail);
   await storage.close();
+});
+
+test("Redis inbox polling reads only the requested bounded window", async () => {
+  let range;
+  const client = {
+    isOpen: false, isReady: true,
+    async zRange(...args) { range = args; return []; },
+    async hmGet() { assert.fail("empty ranges need no hash read"); },
+  };
+  const storage = new RedisStorage(client, "hubot:storage");
+  assert.deepEqual(await storage.pendingEvents(64), []);
+  assert.deepEqual(range, ["hubot:storage:inbox-order", 0, 63]);
 });
 
 test("Redis writes the original key and claims duplicates atomically with a 24-hour expiry", async () => {
@@ -399,6 +428,23 @@ test("user_change merges metadata without deleting memory", async t => {
   assert.equal(service.brain.data.users.U1.email_address, undefined);
   assert.equal(service.brain.data.users.U1.slack.profile, undefined);
   assert.deepEqual(service.brain.data.users.U1.roles, ["maintainer"]);
+  assert.equal(service.storage.inbox.size, 0);
+  assert.equal(service.storage.writes.length, 0);
+});
+
+test("a same-channel message burst shares one durable brain snapshot", async t => {
+  const service = setup({ register(bot) {
+    bot.hear(/work/, () => { bot.brain.data.processed = (bot.brain.data.processed || 0) + 1; });
+  } });
+  t.after(() => service.stop());
+  await service.initialize();
+  await Promise.all(Array.from({ length: 10 }, (_, i) => service.app.processEvent({
+    body: { type: "event_callback", team_id: "T1", event_id: `Write${i}`,
+      event: event({ text: "work", ts: String(i), channel_type: "channel" }) }, ack: async () => {},
+  })));
+  await service.drainEvents();
+  assert.equal(service.brain.data.processed, 10);
+  assert.equal(service.storage.writes.length, 1);
 });
 
 test("update db uses the authenticated Slack service and keeps the existing summary", async t => {
@@ -615,6 +661,20 @@ test("Slack initialization failure closes Redis without saving startup mutations
   assert.equal(service.storage.writes.length, 0); assert.equal(service.storage.closes, 1);
 });
 
+test("the Redis worker lease prevents two bot instances from processing one brain", async t => {
+  const storage = fakeStorage();
+  const first = setup({ storage });
+  t.after(() => first.stop());
+  await first.initialize();
+  const overlapping = setup({ storage });
+  await assert.rejects(overlapping.initialize(), /owns the Redis event-worker lease/);
+  await overlapping.stop();
+  await first.stop();
+  const successor = setup({ storage });
+  t.after(() => successor.stop());
+  await successor.initialize();
+});
+
 test("a stopped app cannot restart or create a second listener", async t => {
   const service = setup(); t.after(() => service.stop());
   await service.start({ port: 0, host: "127.0.0.1" });
@@ -626,6 +686,7 @@ test("a stopped app cannot restart or create a second listener", async t => {
 
 test("stopping while the receiver binds closes the new server and saves once", async () => {
   const service = setup(); await service.initialize();
+  service.brain.set("shutdown-test", true);
   const original = service.receiver.start.bind(service.receiver);
   let entered, release;
   const binding = new Promise(resolve => { entered = resolve; });

@@ -8,7 +8,7 @@ const { setImmediate: nextTurn } = require("node:timers/promises");
 const { Brain, BrainPersistence } = require("../scripts/runtime/brain");
 const { Bot, TextMessage } = require("../scripts/runtime/bot");
 const { ScriptHttpClient } = require("../scripts/runtime/http-client");
-const { InboxWorker, inboxEvent } = require("../scripts/runtime/event-inbox");
+const { InboxWorker, MAX_EVENT_ATTEMPTS, inboxEvent } = require("../scripts/runtime/event-inbox");
 
 // All transports and persistence in this suite are fakes. No credentials or
 // Slack/Redis clients are instantiated, and HTTP tests inject request doubles.
@@ -142,7 +142,7 @@ test("username lookups preserve case-insensitive prefix and exact-match preferen
   assert.deepEqual(brain.usersForFuzzyName("missing"), []);
 });
 
-test("saves include in-place mutations and serialize overlapping writes", async () => {
+test("saves include in-place mutations and coalesce overlapping writes", async () => {
   const brain = new Brain(), storage = storageFor();
   const releases = [];
   storage.write = value => new Promise(resolve => {
@@ -155,28 +155,64 @@ test("saves include in-place mutations and serialize overlapping writes", async 
   const first = persistence.save();
   brain.data.users.U1.roles.push("guitarist");
   const second = persistence.save();
-  await nextTurn();
+  await new Promise(resolve => setTimeout(resolve, 35));
   assert.equal(storage.writes.length, 1);
   assert.equal(JSON.parse(storage.writes[0])._private.scorefield.alice, 8);
-  assert.deepEqual(JSON.parse(storage.writes[0]).users.U1.roles, ["maintainer"]);
+  assert.deepEqual(JSON.parse(storage.writes[0]).users.U1.roles, ["maintainer", "guitarist"]);
   releases.shift()();
-  await first;
-  await nextTurn();
+  await Promise.all([first, second]);
+  assert.equal(storage.writes.length, 1);
+  await persistence.save();
+  assert.equal(storage.writes.length, 1, "unchanged snapshots must not be rewritten");
+  await persistence.close();
+});
+
+test("a mutation arriving during a brain write waits for a newer snapshot", async () => {
+  const brain = new Brain(), storage = storageFor();
+  const releases = [];
+  storage.write = value => new Promise(resolve => {
+    storage.writes.push(value); releases.push(resolve);
+  });
+  const persistence = new BrainPersistence(brain, storage, assert.fail);
+  await persistence.load();
+  brain.set("first", true);
+  const first = persistence.save();
+  await new Promise(resolve => setTimeout(resolve, 35));
+  assert.equal(storage.writes.length, 1);
+  brain.set("second", true);
+  const second = persistence.save();
+  await new Promise(resolve => setTimeout(resolve, 35));
+  assert.equal(storage.writes.length, 1, "the newer write remains serialized behind the first");
+  releases.shift()(); await first; await nextTurn();
   assert.equal(storage.writes.length, 2);
-  assert.deepEqual(JSON.parse(storage.writes[1]).users.U1.roles, ["maintainer", "guitarist"]);
-  releases.shift()();
-  await second;
+  assert.equal(JSON.parse(storage.writes[1])._private.second, true);
+  releases.shift()(); await second;
+  await persistence.close();
+});
+
+test("unchanged saves avoid Redis writes", async () => {
+  const brain = new Brain(), storage = storageFor();
+  const persistence = new BrainPersistence(brain, storage, assert.fail);
+  await persistence.load();
+  await persistence.save();
+  await persistence.save();
+  assert.equal(storage.writes.length, 0);
+  brain.set("changed", true);
+  await persistence.save();
+  assert.equal(storage.writes.length, 1);
+  await persistence.close();
 });
 
 test("failed writes are observable and do not prevent later saves", async () => {
-  const storage = storageFor();
+  const brain = new Brain(), storage = storageFor();
   let attempts = 0;
   storage.write = async value => {
     if (++attempts === 1) throw new Error("write failed");
     storage.writes.push(value);
   };
-  const persistence = new BrainPersistence(new Brain(), storage, assert.fail);
+  const persistence = new BrainPersistence(brain, storage, assert.fail);
   await persistence.load();
+  brain.set("changed", true);
   await assert.rejects(persistence.save(), /write failed/);
   await persistence.save();
   assert.equal(storage.writes.length, 1);
@@ -200,8 +236,10 @@ test("close flushes the latest memory exactly once and rejects subsequent saves"
 test("shutdown still closes storage when its final save fails", async () => {
   const storage = storageFor();
   storage.write = async () => { throw new Error("offline"); };
-  const persistence = new BrainPersistence(new Brain(), storage, assert.fail);
+  const brain = new Brain();
+  const persistence = new BrainPersistence(brain, storage, assert.fail);
   await persistence.load();
+  brain.set("changed", true);
   await assert.rejects(persistence.close(), /offline/);
   assert.equal(storage.closes, 1);
 });
@@ -209,16 +247,19 @@ test("shutdown still closes storage when its final save fails", async () => {
 test("autosave reports failures and stops when closed", async t => {
   t.mock.timers.enable({ apis: ["setInterval"] });
   const storage = storageFor(), errors = [];
-  const persistence = new BrainPersistence(new Brain(), storage, error => errors.push(error));
+  const brain = new Brain();
+  const persistence = new BrainPersistence(brain, storage, error => errors.push(error));
   await persistence.load();
   persistence.start(100);
+  brain.set("first", true);
   t.mock.timers.tick(100);
-  await nextTurn();
+  await new Promise(resolve => setTimeout(resolve, 35));
   assert.equal(storage.writes.length, 1);
   const write = storage.write;
   storage.write = async () => { throw new Error("offline"); };
+  brain.set("second", true);
   t.mock.timers.tick(100);
-  await nextTurn();
+  await new Promise(resolve => setTimeout(resolve, 35));
   assert.equal(errors.length, 1);
   storage.write = write;
   await persistence.close();
@@ -509,11 +550,18 @@ test("inbox workers bound concurrency, preserve per-channel order and drain at s
   let release, active = 0, peak = 0;
   const gate = new Promise(resolve => { release = resolve; });
   const seen = [];
-  const storage = { async pendingEvents() { return [...pending.values()]; }, async completeEvent(id) { pending.delete(id); } };
+  let lease;
+  const storage = {
+    async pendingEvents(limit = 64) { return [...pending.values()].slice(0, limit); },
+    async completeEvent(id) { pending.delete(id); }, async failEvent() { return { attempts: 1, deadLettered: false }; },
+    async acquireLease(owner) { lease = owner; return true; }, async renewLease(owner) { return owner === lease; },
+    async releaseLease(owner) { if (lease === owner) lease = undefined; },
+  };
   const worker = new InboxWorker(storage, async item => {
     active++; peak = Math.max(peak, active); await gate;
     seen.push(`${item.channel}:${item.event.ts}`); active--;
   }, async () => {}, { error: assert.fail });
+  assert.equal(await worker.acquire(), true);
   await worker.tick();
   assert.equal(active, 8);
   release(); await worker.settle();
@@ -530,10 +578,13 @@ test("inbox retry retains events on process/save/completion failures without rep
     const item = inboxEvent("T1", "Ev1", { type: "message", channel: "C1", ts: failure });
     let pending = true, fail = true, processed = 0, saved = 0;
     const errors = [];
+    let attempts = 0, lease;
     const storage = { async pendingEvents() { return pending ? [item] : []; }, async completeEvent() {
       if (failure === "complete" && fail) { fail = false; throw new Error("storage down"); }
       pending = false;
-    } };
+    }, async failEvent() { return { attempts: ++attempts, deadLettered: false }; },
+    async acquireLease(owner) { lease = owner; return true; }, async renewLease(owner) { return owner === lease; },
+    async releaseLease(owner) { if (lease === owner) lease = undefined; } };
     const worker = new InboxWorker(storage, async () => {
       processed++;
       if (failure === "process" && fail) { fail = false; throw new Error("lookup failed"); }
@@ -541,15 +592,47 @@ test("inbox retry retains events on process/save/completion failures without rep
       saved++;
       if (failure === "save" && fail) { fail = false; throw new Error("storage down"); }
     }, { error: (...args) => errors.push(args) });
+    assert.equal(await worker.acquire(), true);
     await worker.tick(); await worker.settle();
     assert.equal(pending, true); assert.equal(errors.length, 1);
     await worker.tick(); await worker.settle();
     assert.equal(processed, 1);
-    t.mock.timers.tick(1001);
+    t.mock.timers.tick(5001);
     await worker.tick(); await worker.settle();
     assert.equal(pending, false);
     assert.equal(processed, failure === "process" ? 2 : 1);
     assert.equal(saved, failure === "process" ? 1 : 2);
     await worker.stop();
   }
+});
+
+test("exhausted inbox retries move poison events to a bounded dead-letter path", async t => {
+  t.mock.timers.enable({ apis: ["Date"] });
+  const item = inboxEvent("T1", "Poison", { type: "message", channel: "C1", ts: "1" });
+  const pending = new Map([[item.id, item]]), dead = new Map(), retries = new Map();
+  let lease;
+  const storage = {
+    async pendingEvents(limit = 64) { return [...pending.values()].slice(0, limit); },
+    async completeEvent(id) { pending.delete(id); },
+    async failEvent(id, reason, maximum) {
+      const attempts = (retries.get(id) || 0) + 1; retries.set(id, attempts);
+      if (attempts < maximum) return { attempts, deadLettered: false };
+      dead.set(id, { event: pending.get(id), reason, attempts }); pending.delete(id); retries.delete(id);
+      return { attempts, deadLettered: true };
+    },
+    async acquireLease(owner) { lease = owner; return true; }, async renewLease(owner) { return owner === lease; },
+    async releaseLease(owner) { if (owner === lease) lease = undefined; },
+  };
+  const errors = [];
+  const worker = new InboxWorker(storage, async () => { throw new Error("poison"); }, async () => {},
+    { error: (...args) => errors.push(args) });
+  await worker.acquire();
+  for (let attempt = 0; attempt < MAX_EVENT_ATTEMPTS; attempt++) {
+    await worker.tick(); await worker.settle();
+    t.mock.timers.tick(300001);
+  }
+  assert.equal(pending.size, 0);
+  assert.equal(dead.get(item.id).attempts, MAX_EVENT_ATTEMPTS);
+  assert(errors.some(args => String(args[0]).includes("dead-letter")));
+  await worker.stop();
 });

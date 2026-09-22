@@ -1,10 +1,18 @@
 import type { App } from "@slack/bolt";
 
-// Only explicit permanent lookup failures are dropped. Unknown, network,
-// rate-limit and authentication/configuration failures remain retryable.
+// Only explicit permanent lookup/configuration failures are dropped. Unknown,
+// network and rate-limit failures remain retryable through the Redis inbox.
 export function isPermanentLookupFailure(error: unknown): boolean {
   const code = (error as { data?: { error?: string } })?.data?.error;
-  return !!code && ["channel_not_found", "user_not_found", "bot_not_found", "not_in_channel", "user_not_visible"].includes(code);
+  return !!code && [
+    "channel_not_found", "user_not_found", "bot_not_found", "not_in_channel", "user_not_visible",
+    "missing_scope", "is_archived", "account_inactive", "invalid_auth", "not_authed", "token_revoked",
+    "team_access_not_granted",
+  ].includes(code);
+}
+
+export function slackErrorCode(error: unknown): string | undefined {
+  return (error as { data?: { error?: string } })?.data?.error;
 }
 
 export interface SlackIdentity { teamId: string; botUserId: string; botId: string }

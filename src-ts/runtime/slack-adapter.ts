@@ -2,7 +2,7 @@ import { Bot, TextMessage } from "./bot";
 import type { Brain } from "./brain";
 import type { EventClaims } from "./redis-storage";
 import type { SlackApi, SlackBot, SlackChannel, SlackIdentity, SlackUser } from "./slack-api";
-import { isPermanentLookupFailure } from "./slack-api";
+import { isPermanentLookupFailure, slackErrorCode } from "./slack-api";
 import type { DeliveryMethod, Envelope, Logger, OutgoingMessage, Transport, User } from "./types";
 
 export interface SlackMessageEvent {
@@ -187,7 +187,7 @@ export class SlackEvents {
     const task = (this.pending.get(key) ?? Promise.resolve()).then(() => this.dispatch(team, event, claim))
       .catch(error => {
         if (!isPermanentLookupFailure(error)) throw error;
-        this.bot.logger.warning(`Ignoring unavailable Slack entity in channel ${event.channel}`);
+        this.bot.logger.error(`Dropping event in channel ${event.channel} after permanent Slack error: ${slackErrorCode(error)}`);
       });
     const settled = task.catch(() => {}).finally(() => { if (this.pending.get(key) === settled) this.pending.delete(key); });
     this.pending.set(key, settled);

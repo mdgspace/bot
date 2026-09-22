@@ -104,6 +104,8 @@ export class BrainPersistence {
   private closing?: Promise<void>;
   private interval?: NodeJS.Timeout;
   private writes: Promise<void> = Promise.resolve();
+  private persistedSnapshot?: string;
+  private coalescedSave?: Promise<void>;
 
   constructor(
     private readonly brain: Brain,
@@ -116,7 +118,10 @@ export class BrainPersistence {
       throw new Error("Brain load already started or storage closed");
     this.loading = true;
     try {
-      this.brain.restore(await this.storage.read());
+      const saved = await this.storage.read();
+      this.brain.restore(saved);
+      // Normalize missing namespaces once so unchanged brains can skip writes.
+      this.persistedSnapshot = JSON.stringify(this.brain.data);
       this.loaded = true;
     } finally {
       this.loading = false;
@@ -138,17 +143,34 @@ export class BrainPersistence {
   async save(): Promise<void> {
     if (!this.loaded || this.closing)
       throw new Error("Brain storage is not ready for saves");
-    return this.enqueueSave();
+    // Concurrent channel workers share one snapshot/write. The short window is
+    // outside Slack's acknowledgement path and dramatically reduces burst I/O.
+    if (!this.coalescedSave) {
+      let scheduled!: Promise<void>;
+      scheduled = new Promise<void>(resolve => setTimeout(resolve, 25))
+        .then(() => {
+          // Calls arriving while this snapshot is being written must schedule
+          // another snapshot rather than completing against stale data.
+          if (this.coalescedSave === scheduled) this.coalescedSave = undefined;
+          return this.enqueueSave();
+        });
+      this.coalescedSave = scheduled;
+    }
+    return this.coalescedSave;
   }
 
   private enqueueSave(): Promise<void> {
     const snapshot = JSON.stringify(this.brain.data);
-    const write = this.writes.then(() => this.storage.write(snapshot));
+    const write = this.writes.then(async () => {
+      if (snapshot === this.persistedSnapshot) return;
+      await this.storage.write(snapshot);
+      this.persistedSnapshot = snapshot;
+    });
     this.writes = write.catch(() => {});
     return write;
   }
 
-  close(): Promise<void> {
+  close(closeStorage = true): Promise<void> {
     if (!this.closing) {
       if (this.loading)
         return Promise.reject(
@@ -157,10 +179,11 @@ export class BrainPersistence {
       if (this.interval) clearInterval(this.interval);
       this.closing = (async () => {
         try {
+          await this.coalescedSave;
           if (this.loaded) await this.enqueueSave();
         } finally {
           await this.writes;
-          await this.storage.close();
+          if (closeStorage) await this.storage.close();
         }
       })();
     }

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { createClient } from "redis";
 import type { BrainStorage } from "./brain";
-import type { EventInbox, InboxEvent } from "./event-inbox";
+import type { EventInbox, FailureResult, InboxEvent } from "./event-inbox";
 
 export interface EventClaims {
   claim(team: string, channel: string, timestamp: string): Promise<boolean>;
@@ -86,8 +86,9 @@ export class RedisStorage implements BotStorage {
     });
   }
 
-  async pendingEvents(): Promise<InboxEvent[]> {
-    const ids = await this.client.zRange(`${this.storageKey}:inbox-order`, 0, -1);
+  async pendingEvents(limit = 64): Promise<InboxEvent[]> {
+    const stop = Math.max(1, Math.floor(limit)) - 1;
+    const ids = await this.client.zRange(`${this.storageKey}:inbox-order`, 0, stop);
     if (!ids.length) return [];
     const values = await this.client.hmGet(`${this.storageKey}:inbox`, ids);
     return values.filter((value): value is string => value !== null).map(value => JSON.parse(value) as InboxEvent);
@@ -98,10 +99,59 @@ export class RedisStorage implements BotStorage {
       redis.call('SET', KEYS[3], '1', 'EX', 86400)
       redis.call('HDEL', KEYS[1], ARGV[1])
       redis.call('ZREM', KEYS[2], ARGV[1])
+      redis.call('HDEL', KEYS[4], ARGV[1])
       return 1`, {
-      keys: [`${this.storageKey}:inbox`, `${this.storageKey}:inbox-order`, `${this.storageKey}:slack-event:${id}`],
+      keys: [`${this.storageKey}:inbox`, `${this.storageKey}:inbox-order`, `${this.storageKey}:slack-event:${id}`,
+        `${this.storageKey}:inbox-retries`],
       arguments: [id],
     });
+  }
+
+  async failEvent(id: string, reason: string, maxAttempts: number): Promise<FailureResult> {
+    const result = await this.client.eval(`
+      local payload = redis.call('HGET', KEYS[1], ARGV[1])
+      if not payload then return {0, 0} end
+      local attempts = redis.call('HINCRBY', KEYS[3], ARGV[1], 1)
+      if attempts < tonumber(ARGV[3]) then return {attempts, 0} end
+      local dead = cjson.encode({event=cjson.decode(payload), attempts=attempts,
+        reason=ARGV[2], failedAt=ARGV[4]})
+      redis.call('HSET', KEYS[4], ARGV[1], dead)
+      redis.call('ZADD', KEYS[5], ARGV[4], ARGV[1])
+      redis.call('SET', KEYS[6], '1', 'EX', 86400)
+      redis.call('HDEL', KEYS[1], ARGV[1])
+      redis.call('ZREM', KEYS[2], ARGV[1])
+      redis.call('HDEL', KEYS[3], ARGV[1])
+      local excess = redis.call('ZCARD', KEYS[5]) - 1000
+      if excess > 0 then
+        local stale = redis.call('ZRANGE', KEYS[5], 0, excess - 1)
+        for _, staleId in ipairs(stale) do redis.call('HDEL', KEYS[4], staleId) end
+        redis.call('ZREMRANGEBYRANK', KEYS[5], 0, excess - 1)
+      end
+      return {attempts, 1}`, {
+      keys: [`${this.storageKey}:inbox`, `${this.storageKey}:inbox-order`, `${this.storageKey}:inbox-retries`,
+        `${this.storageKey}:dead-letter`, `${this.storageKey}:dead-letter-order`, `${this.storageKey}:slack-event:${id}`],
+      arguments: [id, reason, String(maxAttempts), String(Date.now())],
+    }) as [number, number];
+    return { attempts: Number(result[0]), deadLettered: Number(result[1]) === 1 };
+  }
+
+  async acquireLease(owner: string, ttlSeconds: number): Promise<boolean> {
+    return await this.client.set(`${this.storageKey}:inbox-worker`, owner, { NX: true, EX: ttlSeconds }) === "OK";
+  }
+
+  async renewLease(owner: string, ttlSeconds: number): Promise<boolean> {
+    return Number(await this.client.eval(`
+      if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+      redis.call('EXPIRE', KEYS[1], ARGV[2])
+      return 1`, {
+      keys: [`${this.storageKey}:inbox-worker`], arguments: [owner, String(ttlSeconds)],
+    })) === 1;
+  }
+
+  async releaseLease(owner: string): Promise<void> {
+    await this.client.eval(`
+      if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end
+      return 0`, { keys: [`${this.storageKey}:inbox-worker`], arguments: [owner] });
   }
 
   async close(): Promise<void> {

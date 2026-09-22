@@ -93,6 +93,8 @@ test("Docker builds TypeScript and starts Bolt without Hubot", () => {
 test("Procfile uses a web process and every deployment path reaches Bolt", () => {
   assert.equal(read("Procfile").trim(), "web: node scripts/main.js");
   assert(read("start_bot.sh").includes("exec npm run start"));
+  assert.match(read("start_bot.sh"), /if \[ ! -f scripts\/main\.js \]/);
+  assert.match(read("start_bot.sh"), /npm ci .* npm run build first/);
   assert(read("docker-compose.yml").includes("8080"));
   assert(read("dev_docker-compose.yml").includes("REDIS_URL: redis://redis:6379"));
 });

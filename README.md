@@ -87,7 +87,7 @@ Local npm commands and standalone launchers automatically load `.env`; already e
 
 All existing deployment paths remain supported:
 
-- `start_bot.sh` runs the prepared build through `npm start`, which loads `.env`.
+- `start_bot.sh` checks for the prepared build and runs it through `npm start`, which loads `.env`.
 - `Procfile` starts a `web` process so the Events API route receives traffic.
 - `Dockerfile` builds TypeScript in a separate stage and starts `scripts/main.js` as the unprivileged `node` user.
 - `docker-compose.yml` loads production configuration from `.env` and publishes container port `8080` on `127.0.0.1:9998`.
@@ -104,7 +104,11 @@ The reverse proxy must forward the public `/slack/events` URL to the published p
 
 Production Compose does not provision Redis. Set `REDIS_URL` (or a higher-precedence provider variable) to a Redis host reachable **from the container**; `localhost` refers to the bot container, not the Docker host. Keep the existing Redis key prefix to preserve memory. Use Redis persistence and a non-evicting policy for the brain and inbox.
 
-Run **one active bot instance** against a brain, including during cutover; stop the old bot before starting the replacement. Accepted events are written to a Redis inbox before HTTP acknowledgement. Workers process channels independently, retain transient failures with backoff, and replay pending work after restart. A crash between a script's external side effect and inbox completion can repeat that side effect: inbox processing is at-least-once, not exactly-once. Script callbacks and outbound sends are not transactional with inbox completion. Redis durability depends on its persistence configuration. Monitor inbox backlog and error logs for persistent credential/scope failures.
+Run **one active bot instance** against a brain, including during cutover; stop the old bot before starting the replacement. This is enforced by a renewable Redis worker lease: a concurrent instance fails startup with a clear error, and graceful shutdown retains the lease until the final brain save completes. Accepted message events are written to a Redis inbox before HTTP acknowledgement. Workers process bounded batches for up to eight channels independently, coalesce brain snapshots, retain transient failures with backoff, and replay pending work after restart. Directory-only `user_change` events are handled outside the command inbox and are rebuilt from Slack at startup.
+
+After 12 failed processing attempts, an event is removed from the live queue and placed in the bounded `<storage-key>:dead-letter` Redis hash (oldest entries beyond 1,000 are discarded), with ordering timestamps in `<storage-key>:dead-letter-order`. Permanent Slack failures such as `missing_scope`, `is_archived`, `account_inactive`, and `invalid_auth` are logged and dropped immediately. Alert on these errors and inspect the dead-letter data when repairing configuration; replay is an explicit operator decision.
+
+A crash between a script's external side effect and inbox completion can repeat that side effect: inbox processing is at-least-once, not exactly-once. Script callbacks and outbound sends are not transactional with inbox completion. Redis durability depends on its persistence configuration. Monitor inbox backlog and error logs for persistent credential/scope failures.
 
 As in the old middleware, incoming DM/private-channel commands are disabled. Thread replies retain the old adapter's thread context. Text on `file_share` messages now reaches listeners; edited/deleted/hidden messages remain excluded. Outbound text is split into 4,000-character chunks, with ordering per destination; send failures are logged. Legacy external command endpoints are unchanged: the HTTP helper follows redirects and fails after 15 seconds, but unavailable third-party services still require an operator-selected replacement.
 
