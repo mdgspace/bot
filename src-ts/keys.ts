@@ -4,13 +4,18 @@
 //
 // Commands:
 //   bot who has keys - list every recorded key and its holders
-//   bot who has kN - list all holders of numbered key kN
+//   bot who has k1 - list all holders of k1 (also works for k0 and any other kN)
 //   bot who has unknown keys - list holders whose key number is unknown
-//   bot <name> has kN - add a holder to a numbered key
+//   bot i have k1 - add yourself to a numbered key
+//   bot <name> has k1 - add another holder to a numbered key
+//   bot i have keys - add yourself to unknown keys
 //   bot <name> has keys - add a holder to unknown keys
-//   bot i don't have kN - remove yourself from one numbered key
+//   bot <name> has unknown keys - add a holder to unknown keys explicitly
+//   bot i don't have k1 - remove yourself from one numbered key
+//   bot i don't have unknown keys - remove yourself from unknown keys
 //   bot i don't have keys - remove yourself from every key
-//   bot i gave kN to <name> - transfer one numbered key
+//   bot i gave k1 to <name> - transfer one numbered key
+//   bot i gave unknown keys to <name> - transfer unknown keys
 //   bot i gave keys to <name> - transfer all your recorded keys
 
 import type { Response, Robot, User } from "./runtime/types";
