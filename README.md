@@ -118,6 +118,14 @@ As in the old middleware, incoming DM/private-channel commands are disabled. Thr
 
 `natural` and `node-cron` are pinned to the baseline installed versions to preserve tokenizer imports and named-day schedules. The obsolete quote HTML parsers have been replaced without changing the quote command format.
 
+## Lab keys
+
+Keys are identified by number: `k0` is the master key, and `k1`, `k2`, and later `kN` values are created as they are assigned. More than one member may hold each key. For example, `bot alice has k1` and `bot bob has k1` add both holders; `bot who has k1` lists them together. `bot who has keys` lists every recorded key and its holders.
+
+Commands without a key number, such as `bot alice has keys` or `bot i have keys of ravi`, record the member under **unknown keys**, not under `k0`. Use `bot who has unknown keys` to inspect that group. A member can say `bot i don't have k1` to leave one numbered key, `bot i don't have unknown keys` to leave the unknown group, or `bot i don't have keys` to leave all groups. `bot i gave k1 to bob` transfers one key; omitting the number transfers all of the sender's recorded keys.
+
+The old owner-based `key` brain data is retained for recovery but is not guessed into numbered keys. New holder groups start empty under `key-holders-v2`; assign the actual holders in Slack after deployment. If a member explicitly removes all their keys, their old entries are removed from the active legacy array after a one-time backup under `key-legacy-backup`.
+
 ## Persistent environment commands
 
 The former `hubot-env` commands are implemented locally and keep the existing `_private["hubot-env"]` brain data:
