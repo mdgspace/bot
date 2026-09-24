@@ -20,7 +20,7 @@ export interface SlackUser {
   id: string;
   name?: string;
   real_name?: string;
-  profile?: { email?: string };
+  profile?: { email?: string; display_name?: string };
   [key: string]: unknown;
 }
 export interface SlackBot {

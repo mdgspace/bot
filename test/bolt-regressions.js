@@ -399,6 +399,164 @@ test("normalization retains mentions, channel labels, links, entities and attach
   assert.equal(received, "@bot ping\nattachment text");
 });
 
+test("keys shorthand accepts display names, typed @names, and an omitted owner", async () => {
+  const { brain, directory, bot, events, api } = adapterSetup();
+  require("../scripts/keys")(bot);
+  directory.updateUser({ id: "U1", name: "alice", profile: { display_name: "Bolt Fixture One" } });
+  await events.receive("T1", event({ text: "<@UBOT> Bolt Fixture One has keys", ts: "201" }));
+  await events.receive("T1", event({ text: "<@UBOT> @alice has keys", ts: "202" }));
+  await events.receive("T1", event({ text: "<@UBOT> i have keys", ts: "203" }));
+  await events.receive("T1", event({ text: "<@UBOT> who has keys", ts: "204" }));
+  await bot.flush();
+  assert.deepEqual(brain.get("key"), [
+    { holder: "alice", owner: "lab" },
+    { holder: "alice", owner: "lab" },
+    { holder: "alice", owner: "lab" },
+  ]);
+  assert.equal(api.posts.length, 4, JSON.stringify(api.posts.map(post => post.text)));
+  assert.match(api.posts[3].text, /lab's key are with alice/);
+});
+
+test("selected Slack mentions identify the key holder even when display names collide", async () => {
+  const { brain, directory, bot, events, api } = adapterSetup();
+  require("../scripts/keys")(bot);
+  directory.updateUser({ id: "U2", name: "fixture-two", profile: { display_name: "Alex" } });
+  directory.updateUser({ id: "U3", name: "fixture-three", profile: { display_name: "Alex" } });
+  await events.receive("T1", event({ text: "<@UBOT> Alex has keys", ts: "205" }));
+  await events.receive("T1", event({ text: "<@UBOT> <@U2|Alex> has keys", ts: "206" }));
+  await events.receive("T1", event({ text: "<@UBOT> alice has keys of fixture-two", ts: "207" }));
+  await bot.flush();
+  assert.match(api.posts[0].text, /Be more specific/);
+  assert.deepEqual(brain.get("key"), [
+    { holder: "fixture-two", owner: "lab" },
+    { holder: "alice", owner: "fixture-two" },
+  ]);
+  assert.equal(brain.data.users.U2.display_name, "Alex");
+  assert.equal(brain.data.users.U2.email_address, undefined);
+  assert.equal(brain.data.users.U2.slack.profile, undefined);
+});
+
+test("scores require @mentions for changes and accept Slack names or unique real/display names for queries", async t => {
+  const { brain, directory, bot, events, api } = adapterSetup();
+  directory.updateUser({ id: "U2", name: "bob", real_name: "Maggi", profile: { display_name: "Bob Display" } });
+  const today = new Date();
+  const relativeYear = today.getFullYear() % 100 + (today.getMonth() >= 6 ? 1 : 0);
+  const batch = String(relativeYear - 1).padStart(2, "0");
+  const row = ["Fixture Bob", "x", "x", "x", "1", "x", "x", "x", "x", "x", "U2", "x", "x"].join(",");
+  t.mock.method(require("../scripts/util"), "info", callback => callback(null, row));
+  require("../scripts/leaderboard")(bot);
+  require("../scripts/detailed-score")(bot);
+  require("../scripts/batch-score")(bot);
+  const send = async (text, ts) => {
+    await events.receive("T1", event({ text, ts }));
+    await bot.flush();
+  };
+
+  await send("<@UBOT> score alice", "301");
+  await send("<@UBOT> score <@U1|Alice Display>", "302");
+  assert.deepEqual(api.posts.map(post => post.text), ["alice : 7", "alice : 7"]);
+
+  await send("bob++", "303");
+  assert.equal(brain.get("scorefield").bob, undefined);
+  assert.equal(api.posts.length, 2);
+  await send("@bob++", "304");
+  assert.equal(brain.get("scorefield").bob, 1);
+  assert.equal(brain.get("detailedfield").bob.plus.alice, 1);
+  await send(`<@UBOT> score f${batch}`, "305");
+  assert.match(api.posts.at(-1).text, /Fixture Bob\s+:\s+1/);
+
+  await send("<@U2|Bob Display>--", "306");
+  assert.equal(brain.get("scorefield").bob, 0);
+  assert.equal(brain.get("detailedfield").bob.minus.alice, 1);
+  await send("<@UBOT> score bob", "307");
+  await send("<@UBOT> score @bob", "308");
+  assert.deepEqual(api.posts.slice(-2).map(post => post.text), ["bob : 0", "bob : 0"]);
+  await send("<@UBOT> detailed score bob", "309");
+  await send("<@UBOT> detailed score <@U2|Bob Display>", "310");
+  assert.equal(api.posts.at(-1).text, api.posts.at(-2).text);
+  assert.match(api.posts.at(-1).text, /Appreciations/);
+
+  await send("<@UBOT> score maggi", "311");
+  await send("<@UBOT> score Bob Display", "312");
+  assert.deepEqual(api.posts.slice(-2).map(post => post.text), ["bob : 0", "bob : 0"]);
+
+  directory.updateUser({ id: "U3", name: "carol", real_name: "Maggi" });
+  await send("<@UBOT> score maggi", "313");
+  assert.match(api.posts.at(-1).text, /Be more specific.*bob, carol/);
+
+  directory.updateUser({ id: "U4", name: "maggi" });
+  await send("<@UBOT> score maggi", "314");
+  assert.equal(api.posts.at(-1).text, "maggi? Never heard of 'em");
+});
+
+test("score resolves unique partial Slack names without changing exact-match priority", async () => {
+  const { brain, directory, bot, events, api } = adapterSetup();
+  directory.updateUser({ id: "U2", name: "falgunidhingra9", real_name: "Maggi", profile: { display_name: "Falguni" } });
+  brain.set("scorefield", { falgunidhingra9: 4 });
+  require("../scripts/leaderboard")(bot);
+  const send = async (query, ts) => {
+    await events.receive("T1", event({ text: `<@UBOT> score ${query}`, ts }));
+    await bot.flush();
+    return api.posts.at(-1).text;
+  };
+
+  assert.equal(await send("fal", "315"), "falgunidhingra9 : 4");
+  assert.equal(await send("gunid", "316"), "falgunidhingra9 : 4");
+  assert.equal(await send("Mag", "317"), "falgunidhingra9 : 4");
+  directory.updateUser({ id: "U3", name: "falcon" });
+  assert.match(await send("fal", "318"), /Be more specific.*falgunidhingra9, falcon/);
+  brain.get("scorefield").fal = 9;
+  assert.equal(await send("fal", "319"), "fal : 9");
+});
+
+test("info resolves Slack usernames, real/display names, and selected mentions without losing partial sheet search", async t => {
+  const { directory, bot, events, api } = adapterSetup();
+  directory.updateUser({ id: "U2", name: "bob", real_name: "Maggi", profile: { display_name: "Queen Maggi" } });
+  directory.updateUser({ id: "U3", name: "bobby", profile: { display_name: "Queen Maggi" } });
+  const row = (name, id) => [name, "0000000000", "test@example.invalid", "02/01/2001", "1", "CSE",
+    "20000001", "T-101", "fixture", "fixture", id, "fixture", "one"].join(",");
+  const sheet = [row("Falguni Dhingra", "U2"), row("Bobby Example", "U3")].join("\n");
+  t.mock.method(require("../scripts/util"), "info", callback => callback(null, sheet));
+  require("../scripts/info")(bot);
+  const send = async (query, ts) => {
+    const start = api.posts.length;
+    await events.receive("T1", event({ text: `<@UBOT> info ${query}`, ts }));
+    await bot.flush();
+    return api.posts.slice(start);
+  };
+
+  for (const [query, ts] of [["bob", "321"], ["Maggi", "322"], ["Falguni", "323"], ["<@U2|Queen Maggi>", "324"]]) {
+    const posts = await send(query, ts);
+    assert.equal(posts[0].text.startsWith("1 user(s) found matching"), true);
+    assert.equal(posts[1].attachments[0].title, "Falguni Dhingra");
+  }
+  const shared = await send("Queen Maggi", "325");
+  assert.equal(shared[0].text, "2 user(s) found matching `queen maggi`");
+  assert.deepEqual(shared.slice(1).map(post => post.attachments[0].title), ["Falguni Dhingra", "Bobby Example"]);
+});
+
+test("member spreadsheet accepts loopback HTTP but rejects external plaintext HTTP", async t => {
+  const previous = process.env.INFO_SPREADSHEET_URL;
+  t.after(() => {
+    if (previous === undefined) delete process.env.INFO_SPREADSHEET_URL;
+    else process.env.INFO_SPREADSHEET_URL = previous;
+  });
+  const server = http.createServer((req, res) => {
+    assert.equal(req.url, "/members?output=csv");
+    res.end("member-csv");
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  process.env.INFO_SPREADSHEET_URL = `http://127.0.0.1:${server.address().port}/members`;
+  const util = require("../scripts/util");
+  const csv = await new Promise((resolve, reject) => util.info((error, body) =>
+    error ? reject(error) : resolve(body)));
+  assert.equal(csv, "member-csv");
+  process.env.INFO_SPREADSHEET_URL = "http://example.invalid/members";
+  const rejected = await new Promise(resolve => util.info(error => resolve(error)));
+  assert.match(rejected.message, /HTTPS or loopback HTTP/);
+});
+
 test("message snapshots retain their channel while stored users retain roles and counters", async () => {
   const { bot, events, brain } = adapterSetup();
   const snapshots = [];
@@ -449,8 +607,9 @@ test("Slack API wrapper uses the configured token even when a message contains a
 
 test("user_change merges metadata without deleting memory", async t => {
   const service = setup(); t.after(() => service.stop()); await service.initialize();
-  await dispatch(service, { type: "user_change", user: { id: "U1", name: "renamed", real_name: "Alice", profile: { email: "new@example.invalid" } } });
+  await dispatch(service, { type: "user_change", user: { id: "U1", name: "renamed", real_name: "Alice", profile: { email: "new@example.invalid", display_name: "Alice Display" } } });
   assert.equal(service.brain.data.users.U1.name, "renamed");
+  assert.equal(service.brain.data.users.U1.display_name, "Alice Display");
   assert.equal(service.brain.data.users.U1.email_address, undefined);
   assert.equal(service.brain.data.users.U1.slack.profile, undefined);
   assert.deepEqual(service.brain.data.users.U1.roles, ["maintainer"]);
@@ -477,8 +636,9 @@ test("update db uses the authenticated Slack service and keeps the existing summ
   const service = setup({ register: bot => require("../scripts/update-names")(bot) });
   service.api.userInfo = async id => ({ id, name: "renamed" });
   t.after(() => service.stop()); await service.initialize();
-  await dispatch(service, event({ text: "bot update db" })); await nextTurn(); await service.bot.flush();
+  await dispatch(service, event({ text: "bot update db", thread_ts: "100.001" })); await nextTurn(); await service.bot.flush();
   assert.deepEqual(service.api.posts.map(post => post.text), ["Updating names in database", "Updated names for 1 out of 1 users"]);
+  assert.deepEqual(service.api.posts.map(post => post.thread_ts), ["100.001", "100.001"]);
   assert.deepEqual(service.brain.data.users.U1.roles, ["maintainer"]);
 });
 

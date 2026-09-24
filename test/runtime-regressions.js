@@ -453,15 +453,77 @@ test("seen retains restored history across loaded events and ignores PM users", 
   assert.equal(brain.data.seen.private, undefined);
 });
 
-test("leaderboard global matches keep positive minus occurrence counts", async t => {
+test("leaderboard scores only @mentions and keeps positive minus occurrence counts", async t => {
   const util = require("../scripts/util");
   t.mock.method(util, "info", callback => callback(null, "Bob,x,x,x,1,x,x,x,x,x,bob,x,x"));
   const { bot, brain } = botFor();
+  brain.userForId("U2", { name: "bob" });
   require("../scripts/leaderboard")(bot);
   await bot.receive(message("bob--"));
+  assert.equal(brain.get("scorefield").bob, undefined);
+  await bot.receive(message("@bob--"));
   assert.equal(brain.get("detailedfield").bob.minus.alice, 1);
   assert.equal(brain.get("scorefield").bob, -1);
   await bot.flush();
+});
+
+test("leaderboard waits for the member sheet before completing a score event", async t => {
+  const util = require("../scripts/util");
+  let finishLookup;
+  t.mock.method(util, "info", callback => { finishLookup = callback; });
+  const { bot, brain, sent } = botFor();
+  brain.userForId("U2", { name: "bob" });
+  require("../scripts/leaderboard")(bot);
+  const pending = bot.receive(message("@bob++"));
+  await nextTurn();
+  assert.equal(brain.get("scorefield").bob, undefined);
+  finishLookup(null, "Bob,x,x,x,1,x,x,x,x,x,U2,x,x");
+  await pending;
+  await bot.flush();
+  assert.equal(brain.get("scorefield").bob, 1);
+  assert.match(sent[0].messages[0], /bob\+\+.*You're now at 1/);
+});
+
+test("leaderboard reports a missing member sheet without changing scores", async t => {
+  const util = require("../scripts/util");
+  t.mock.method(util, "info", callback => callback(new Error("unavailable")));
+  const { bot, brain, sent } = botFor();
+  brain.userForId("U2", { name: "bob" });
+  require("../scripts/leaderboard")(bot);
+  await bot.receive(message("@bob++"));
+  await bot.flush();
+  assert.equal(brain.get("scorefield").bob, undefined);
+  assert.match(sent[0].messages[0], /member list is unavailable/);
+});
+
+test("leaderboard reuses recent membership and briefly tolerates sheet outages", async t => {
+  const util = require("../scripts/util");
+  let now = 1_000_000, lookups = 0;
+  t.mock.method(Date, "now", () => now);
+  t.mock.method(util, "info", callback => {
+    lookups++;
+    callback(lookups === 1 ? null : new Error("temporary"),
+      lookups === 1 ? "Bob,x,x,x,1,x,x,x,x,x,U2,x,x" : undefined);
+  });
+  const { bot, brain, sent } = botFor();
+  brain.userForId("U2", { name: "bob" });
+  require("../scripts/leaderboard")(bot);
+  await bot.receive(message("@bob++"));
+  await bot.receive(message("@bob--"));
+  assert.equal(lookups, 1);
+  assert.equal(brain.get("scorefield").bob, 0);
+
+  now += 61_000;
+  await bot.receive(message("@bob++"));
+  assert.equal(lookups, 2);
+  assert.equal(brain.get("scorefield").bob, 1);
+
+  now += 300_000;
+  await bot.receive(message("@bob++"));
+  await bot.flush();
+  assert.equal(lookups, 3);
+  assert.equal(brain.get("scorefield").bob, 1);
+  assert.match(sent.at(-1).messages[0], /member list is unavailable/);
 });
 
 function fakeHttp(respond) {

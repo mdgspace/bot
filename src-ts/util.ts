@@ -2,7 +2,7 @@
 // Used by info, birthday, batch-score, leaderboard, detailed-score,
 // most-spoken-words and httpd scripts.
 
-import { https } from "follow-redirects";
+import { http, https } from "follow-redirects";
 
 export interface GraphAttachment {
   color: string;
@@ -26,6 +26,19 @@ export function info(callback: (err: Error | null, body?: string) => void): void
     callback(new Error("INFO_SPREADSHEET_URL is not configured"));
     return;
   }
+  let url: URL;
+  try {
+    url = new URL(spreadsheetUrl);
+  } catch {
+    callback(new Error("INFO_SPREADSHEET_URL is invalid"));
+    return;
+  }
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
+    callback(new Error("INFO_SPREADSHEET_URL must use HTTPS or loopback HTTP"));
+    return;
+  }
+  url.searchParams.set("output", "csv");
 
   let output = "";
   let complete = false;
@@ -37,7 +50,7 @@ export function info(callback: (err: Error | null, body?: string) => void): void
     callback(err, body);
   };
 
-  const request = https.get(`${spreadsheetUrl}?output=csv`, (res) => {
+  const request = (url.protocol === "https:" ? https : http).get(url.toString(), (res) => {
     if (res.statusCode != null && res.statusCode >= 400) {
       res.resume();
       finish(new Error(`member spreadsheet returned HTTP ${res.statusCode}`));
@@ -55,6 +68,9 @@ export function info(callback: (err: Error | null, body?: string) => void): void
   });
   request.on("error", (err: Error) => {
     finish(err);
+  });
+  request.setTimeout(15000, () => {
+    request.destroy(new Error("member spreadsheet request timed out"));
   });
 }
 

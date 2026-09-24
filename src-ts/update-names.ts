@@ -4,7 +4,7 @@
 // Commands:
 //   hubot update db
 
-import type { Robot } from "./runtime/types";
+import type { Response, Robot } from "./runtime/types";
 
 export = (robot: Robot): void => {
   const slack = robot.slack;
@@ -16,15 +16,12 @@ export = (robot: Robot): void => {
     parsedUsers: number;
     updatedUsers: number;
     totalUsers: number;
-    room: string;
+    response: Response;
   }
 
   const reportIfComplete = (run: UpdateRun): void => {
     if (run.parsedUsers === run.totalUsers) {
-      robot.send(
-        { room: run.room },
-        `Updated names for ${run.updatedUsers} out of ${run.totalUsers} users`,
-      );
+      run.response.send(`Updated names for ${run.updatedUsers} out of ${run.totalUsers} users`);
     }
   };
 
@@ -55,7 +52,7 @@ export = (robot: Robot): void => {
       parsedUsers: 0,
       updatedUsers: 0,
       totalUsers: ids.length,
-      room: msg.message.user.room || msg.message.room,
+      response: msg,
     };
     if (run.totalUsers === 0) {
       reportIfComplete(run);

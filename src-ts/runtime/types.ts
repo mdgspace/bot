@@ -2,6 +2,7 @@ export interface User {
   id: string;
   name: string;
   real_name?: string;
+  display_name?: string;
   room?: string;
   email_address?: string;
   roles?: string[];
@@ -24,6 +25,9 @@ export interface Message {
   done?: boolean;
   finish(): void;
   thread_ts?: string;
+  // User IDs from selected Slack mentions, in text order (excluding the bot).
+  slackUserMentions?: string[];
+  rawSlackText?: string;
   channel?: ChannelInfo;
   rawMessage?: { channel?: ChannelInfo };
   message?: { channel?: ChannelInfo };

@@ -16,7 +16,7 @@
 //   :bot who has keys
 //   :bot ravi has keys
 
-import type { Robot, User } from "./runtime/types";
+import type { Response, Robot, User } from "./runtime/types";
 
 interface KeyEntry {
   holder: string;
@@ -25,6 +25,30 @@ interface KeyEntry {
 
 function getAmbiguousUserText(users: User[]): string {
   return `Be more specific, I know ${users.length} people named like that: ${users.map((u) => u.name).join(", ")}`;
+}
+
+function usersForKeyName(robot: Robot, input: string): User[] {
+  const name = input.trim().replace(/^@/, "").toLowerCase();
+  const users = Object.values(robot.brain.data.users);
+  // Preserve the old exact-username preference, then accept Slack display or
+  // real names. Prefix matching remains limited to usernames as before.
+  const usernames = users.filter((user) => String(user.name ?? "").toLowerCase() === name);
+  if (usernames.length) return usernames;
+  const names = users.filter((user) =>
+    [user.display_name, user.real_name].some(
+      (candidate) => typeof candidate === "string" && candidate.toLowerCase() === name,
+    ),
+  );
+  return names.length ? names : robot.brain.usersForFuzzyName(name);
+}
+
+function holderForShortCommand(robot: Robot, msg: Response, input: string): User[] {
+  if (input.toLowerCase() === "i") return [msg.message.user];
+  if (input.startsWith("@") && msg.message.slackUserMentions?.length) {
+    const selected = robot.brain.data.users[msg.message.slackUserMentions[0]];
+    if (selected) return [selected];
+  }
+  return usersForKeyName(robot, input);
 }
 
 export = (robot: Robot): void => {
@@ -116,8 +140,8 @@ export = (robot: Robot): void => {
         } else if (othername === robot.name) {
           msg.send(`How am I supposed to take those keys? ${name} is a liar!`);
         } else {
-          const users = robot.brain.usersForFuzzyName(othername);
-          const userso = robot.brain.usersForFuzzyName(ownerName);
+          const users = usersForKeyName(robot, othername);
+          const userso = usersForKeyName(robot, ownerName);
           if (users.length === 1) {
             if (userso.length === 1) {
               k.push({ holder: users[0].name, owner: userso[0].name });
@@ -145,6 +169,28 @@ export = (robot: Robot): void => {
     }
   });
 
+  // The omitted owner means the lab keys, matching the documented shorthand.
+  robot.respond(/^(?!\s*(?:i\s+(?:don'?t|do\s+not)|who(?:\s+all)?)\s+(?:has|have)\b)\s*(.+) (has|have) (the key|key|keys|a key)$/i, (msg) => {
+    const othername = msg.match[1].trim();
+    if (/^who(?: all)?$/i.test(othername)) return;
+    if (["you", robot.name.toLowerCase()].includes(othername.replace(/^@/, "").toLowerCase())) {
+      msg.send(`How am I supposed to take those keys? ${msg.message.user.name} is a liar!`);
+      return;
+    }
+
+    const users = holderForShortCommand(robot, msg, othername);
+    if (users.length > 1) {
+      msg.send(getAmbiguousUserText(users));
+    } else if (users.length === 0) {
+      msg.send(`${othername}? Never heard of 'em`);
+    } else {
+      const kh = key();
+      kh.push({ holder: users[0].name, owner: "lab" });
+      robot.brain.set("key", kh);
+      msg.send(`Okay, so now the key of lab are with ${users[0].name}`);
+    }
+  });
+
   robot.respond(
     /(i|I) (have given|gave|had given) (the key|key|keys|a key|the keys) to (.+)/i,
     (msg) => {
@@ -160,7 +206,7 @@ export = (robot: Robot): void => {
           "That's utter lies! How can you blame a bot to have the keys?",
         );
       } else {
-        const users = robot.brain.usersForFuzzyName(othername);
+        const users = usersForKeyName(robot, othername);
         if (users.length === 0) {
           msg.send(`I don't know anyone by the name ${othername}`);
         } else {
@@ -219,7 +265,7 @@ export = (robot: Robot): void => {
   robot.respond(/who (has|have) (.+'s) (key|keys)/i, (msg) => {
     let ownerName = msg.match[2];
     ownerName = ownerName.substr(0, ownerName.length - 2);
-    const users = robot.brain.usersForFuzzyName(ownerName);
+    const users = usersForKeyName(robot, ownerName);
     try {
       const kh = key();
       if (users.length === 1) {

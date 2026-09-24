@@ -2,10 +2,11 @@
 //   Enlists all people who have given ++ or -- to a particular person
 
 // Commands:
-//   bot detailed score name
+//   bot detailed score name or bot detailed score @name
 //   bot detailed score name -b  (for bar graph)
 
 import type { Robot } from "./runtime/types";
+import { scoreNameForQuery } from "./runtime/score-user";
 
 import { graph } from "./util";
 
@@ -42,10 +43,10 @@ function isExist(list: Person[], name: string): number {
 }
 
 export = (robot: Robot): void => {
-  robot.respond(/detailed score ([\w\-_]+)( \-\w)?/i, (msg) => {
+  robot.respond(/detailed score (.+?)( -b)?$/i, (msg) => {
+    const name = scoreNameForQuery(robot, msg, msg.match[1]);
     // <keyword> whose score is to be shown
     if (msg.match[2] === undefined) {
-      const name = msg.match[1].toLowerCase();
       let plusField: [string, number][] = [];
       let minusField: [string, number][] = [];
       const detailedfield = robot.brain.get("detailedfield") || {};
@@ -72,8 +73,7 @@ export = (robot: Robot): void => {
       }
       msg.send(response);
     } else {
-      if (msg.match[2] === " -b") {
-        const name = msg.match[1].toLowerCase();
+      if (msg.match[2]?.toLowerCase() === " -b") {
         const detailedfield = robot.brain.get("detailedfield") || {};
         const list: Person[] = [];
         if (detailedfield[name]) {

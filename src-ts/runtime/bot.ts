@@ -29,6 +29,8 @@ interface Listener {
 export class TextMessage implements Message {
   done = false;
   channel?: Message["channel"];
+  slackUserMentions?: string[];
+  rawSlackText?: string;
   constructor(
     public user: User,
     public text: string,

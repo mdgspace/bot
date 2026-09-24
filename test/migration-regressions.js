@@ -52,43 +52,10 @@ test("most-spoken-words loads without optional native classifiers", () => {
   assert.strictEqual(typeof require("../scripts/most-spoken-words"), "function");
 });
 
-test("minus events remain positive occurrence counts", () => {
-  const util = require("../scripts/util");
-  const originalInfo = util.info;
-  util.info = (callback) =>
-    callback(null, "Bob,x,x,x,1,x,x,x,x,x,bob,x,x");
-
-  let hearHandler;
-  const store = {};
-  require("../scripts/leaderboard")({
-    brain: {
-      get: (key) => store[key],
-      set: (key, value) => {
-        store[key] = value;
-      },
-    },
-    hear: (regex, callback) => {
-      hearHandler = callback;
-    },
-    listenerMiddleware() {},
-    logger,
-    on() {},
-    respond() {},
-  });
-
-  hearHandler({
-    match: ["bob--"],
-    message: { text: "bob--", user: { name: "alice" } },
-    send() {},
-  });
-  util.info = originalInfo;
-  assert.strictEqual(store.detailedfield.bob.minus.alice, 1);
-});
-
 test("detailed score handles a fresh brain", () => {
   let handler;
   require("../scripts/detailed-score")({
-    brain: { get: () => undefined },
+    brain: { data: { users: {} }, get: () => undefined },
     respond: (regex, callback) => {
       handler = callback;
     },

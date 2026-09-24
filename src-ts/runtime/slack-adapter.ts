@@ -41,6 +41,7 @@ export class SlackDirectory {
     return this.brain.userForId(user.id, {
       name: user.name,
       real_name: user.real_name,
+      display_name: user.profile?.display_name,
       // Commands need identity, not emails or the complete workspace profile.
       // Existing script-owned fields on the brain user remain untouched.
       slack: { id: user.id, name: user.name, is_bot: user.is_bot },
@@ -230,6 +231,9 @@ export class SlackEvents {
     user.room = event.channel;
     const message = new TextMessage({ ...user, room: event.channel, pm: false,
       slack: { ...user.slack, is_bot: !!event.bot_id || !!user.slack?.is_bot } }, text, event.channel, event.thread_ts);
+    message.slackUserMentions = [...(event.text ?? "").matchAll(/<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/g)]
+      .map(match => match[1]).filter(id => id !== this.identity.botUserId);
+    message.rawSlackText = event.text ?? "";
     message.channel = channel;
     await this.bot.receive(message);
   }
