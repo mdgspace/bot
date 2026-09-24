@@ -1,0 +1,748 @@
+"use strict";
+
+const assert = require("node:assert/strict");
+const { test } = require("node:test");
+const { EventEmitter } = require("node:events");
+const { readFileSync } = require("node:fs");
+const { setImmediate: nextTurn } = require("node:timers/promises");
+const { Brain, BrainPersistence } = require("../scripts/runtime/brain");
+const { Bot, TextMessage } = require("../scripts/runtime/bot");
+const { ScriptHttpClient } = require("../scripts/runtime/http-client");
+const { InboxWorker, MAX_EVENT_ATTEMPTS, inboxEvent } = require("../scripts/runtime/event-inbox");
+
+// All transports and persistence in this suite are fakes. No credentials or
+// Slack/Redis clients are instantiated, and HTTP tests inject request doubles.
+function fixture() {
+  return {
+    users: { U1: { id: "U1", name: "alice", room: "general", roles: ["maintainer"], msgcount: 4, words: { hello: 2 }, custom: "keep" } },
+    _private: { scorefield: { alice: 7 }, detailedfield: { alice: { plus: { bob: 2 } } }, skippedlist: ["test"], "hubot-env": { env: { TEST_FLAG: "yes" } } },
+    seen: { alice: { chan: "general", date: 12345 } },
+    unknownScript: { nested: [1, "two", null] },
+  };
+}
+
+function storageFor(saved = JSON.stringify(fixture())) {
+  return {
+    saved, writes: [], closes: 0,
+    async read() { return this.saved; },
+    async write(value) { this.writes.push(value); this.saved = value; },
+    async close() { this.closes++; },
+  };
+}
+
+function botFor(overrides = {}) {
+  const sent = [], errors = [], routes = [];
+  const brain = new Brain();
+  brain.restore(JSON.stringify(fixture()));
+  const bot = new Bot({
+    name: "bot", version: "test", brain,
+    logger: { debug() {}, info() {}, warning() {}, error(error) { errors.push(error); } },
+    router: Object.fromEntries(["get", "post", "put", "delete"].map(method =>
+      [method, (path, callback) => routes.push({ method, path, callback })])),
+    transport: { async deliver(method, envelope, messages) { sent.push({ method, envelope, messages }); } },
+    ...overrides,
+  });
+  return { bot, brain: bot.brain, sent, errors, routes };
+}
+
+function message(text, room = "C1") {
+  return new TextMessage({ id: "U1", name: "alice", room: "general" }, text, room);
+}
+
+test("legacy brain JSON round-trips without losing private, user, seen or unknown fields", async () => {
+  const brain = new Brain(), storage = storageFor();
+  const persistence = new BrainPersistence(brain, storage, assert.fail);
+  let loaded = 0;
+  brain.on("loaded", () => loaded++);
+  await persistence.load();
+  assert.equal(loaded, 1);
+  assert.deepEqual(brain.data, fixture());
+  assert.equal(brain.get("scorefield").alice, 7);
+  await persistence.save();
+  assert.deepEqual(JSON.parse(storage.saved), fixture());
+  await persistence.close();
+});
+
+test("missing storage initializes namespaces and emits loaded", () => {
+  const brain = new Brain();
+  let loaded;
+  brain.on("loaded", data => { loaded = data; });
+  brain.restore(null);
+  assert.strictEqual(loaded, brain.data);
+  assert.deepEqual(brain.data, { users: {}, _private: {} });
+  assert.equal(brain.get("missing"), null);
+});
+
+test("malformed snapshots leave live memory untouched", () => {
+  const brain = new Brain();
+  brain.restore(JSON.stringify(fixture()));
+  const previous = brain.data;
+  for (const invalid of ["{", "null", "[]", "false", '{"users":[]}', '{"_private":null}', '{"users":{"U1":null}}']) {
+    assert.throws(() => brain.restore(invalid));
+    assert.strictEqual(brain.data, previous);
+  }
+});
+
+test("failed reads or corrupt JSON never overwrite stored memory, including at shutdown", async () => {
+  for (const read of [async () => { throw new Error("unavailable"); }, async () => "{invalid"]) {
+    const storage = storageFor();
+    storage.read = read;
+    const persistence = new BrainPersistence(new Brain(), storage, assert.fail);
+    await assert.rejects(persistence.load());
+    await assert.rejects(persistence.save(), /not ready/);
+    assert.throws(() => persistence.start(), /Load brain/);
+    await persistence.close();
+    assert.deepEqual(storage.writes, []);
+    assert.equal(storage.closes, 1);
+  }
+});
+
+test("private keys retain null semantics and loaded notification without prototype collisions", () => {
+  const brain = new Brain();
+  let loaded = 0;
+  brain.on("loaded", () => loaded++);
+  brain.set("score", 0);
+  brain.set("enabled", false);
+  brain.set("__proto__", { safe: true });
+  assert.equal(brain.get("score"), 0);
+  assert.equal(brain.get("enabled"), false);
+  assert.equal(brain.get("toString"), null);
+  assert.deepEqual(brain.get("__proto__"), { safe: true });
+  assert.equal(Object.getPrototypeOf(brain.data._private), Object.prototype);
+  assert.equal(loaded, 3);
+  brain.remove("score");
+  assert.equal(brain.get("score"), null);
+});
+
+test("user metadata refresh keeps object identity, roles, counters and unknown properties", () => {
+  const brain = new Brain();
+  brain.restore(JSON.stringify(fixture()));
+  const original = brain.data.users.U1;
+  const user = brain.userForId("U1", { id: "wrong", name: "new-name", room: "C2", roles: undefined });
+  assert.strictEqual(user, original);
+  assert.equal(user.id, "U1");
+  assert.equal(user.name, "new-name");
+  assert.equal(user.room, "C2");
+  assert.deepEqual(user.roles, ["maintainer"]);
+  assert.equal(user.msgcount, 4);
+  assert.deepEqual(user.words, { hello: 2 });
+  assert.equal(user.custom, "keep");
+  assert.deepEqual(brain.userForId("U2"), { id: "U2", name: "U2" });
+});
+
+test("username lookups preserve case-insensitive prefix and exact-match preference", () => {
+  const brain = new Brain();
+  const alice = brain.userForId("U1", { name: "Alice" });
+  const alicia = brain.userForId("U2", { name: "Alicia" });
+  brain.userForId("U3", { name: "Malice" });
+  assert.strictEqual(brain.userForName("ALICE"), alice);
+  assert.equal(brain.userForName("Ali"), null);
+  assert.deepEqual(brain.usersForFuzzyName("ALICE"), [alice]);
+  assert.deepEqual(brain.usersForRawFuzzyName("aLi"), [alice, alicia]);
+  assert.deepEqual(brain.usersForFuzzyName("missing"), []);
+});
+
+test("saves include in-place mutations and coalesce overlapping writes", async () => {
+  const brain = new Brain(), storage = storageFor();
+  const releases = [];
+  storage.write = value => new Promise(resolve => {
+    storage.writes.push(value);
+    releases.push(resolve);
+  });
+  const persistence = new BrainPersistence(brain, storage, assert.fail);
+  await persistence.load();
+  brain.get("scorefield").alice++;
+  const first = persistence.save();
+  brain.data.users.U1.roles.push("guitarist");
+  const second = persistence.save();
+  await new Promise(resolve => setTimeout(resolve, 35));
+  assert.equal(storage.writes.length, 1);
+  assert.equal(JSON.parse(storage.writes[0])._private.scorefield.alice, 8);
+  assert.deepEqual(JSON.parse(storage.writes[0]).users.U1.roles, ["maintainer", "guitarist"]);
+  releases.shift()();
+  await Promise.all([first, second]);
+  assert.equal(storage.writes.length, 1);
+  await persistence.save();
+  assert.equal(storage.writes.length, 1, "unchanged snapshots must not be rewritten");
+  await persistence.close();
+});
+
+test("a mutation arriving during a brain write waits for a newer snapshot", async () => {
+  const brain = new Brain(), storage = storageFor();
+  const releases = [];
+  storage.write = value => new Promise(resolve => {
+    storage.writes.push(value); releases.push(resolve);
+  });
+  const persistence = new BrainPersistence(brain, storage, assert.fail);
+  await persistence.load();
+  brain.set("first", true);
+  const first = persistence.save();
+  await new Promise(resolve => setTimeout(resolve, 35));
+  assert.equal(storage.writes.length, 1);
+  brain.set("second", true);
+  const second = persistence.save();
+  await new Promise(resolve => setTimeout(resolve, 35));
+  assert.equal(storage.writes.length, 1, "the newer write remains serialized behind the first");
+  releases.shift()(); await first; await nextTurn();
+  assert.equal(storage.writes.length, 2);
+  assert.equal(JSON.parse(storage.writes[1])._private.second, true);
+  releases.shift()(); await second;
+  await persistence.close();
+});
+
+test("unchanged saves avoid Redis writes", async () => {
+  const brain = new Brain(), storage = storageFor();
+  const persistence = new BrainPersistence(brain, storage, assert.fail);
+  await persistence.load();
+  await persistence.save();
+  await persistence.save();
+  assert.equal(storage.writes.length, 0);
+  brain.set("changed", true);
+  await persistence.save();
+  assert.equal(storage.writes.length, 1);
+  await persistence.close();
+});
+
+test("failed writes are observable and do not prevent later saves", async () => {
+  const brain = new Brain(), storage = storageFor();
+  let attempts = 0;
+  storage.write = async value => {
+    if (++attempts === 1) throw new Error("write failed");
+    storage.writes.push(value);
+  };
+  const persistence = new BrainPersistence(brain, storage, assert.fail);
+  await persistence.load();
+  brain.set("changed", true);
+  await assert.rejects(persistence.save(), /write failed/);
+  await persistence.save();
+  assert.equal(storage.writes.length, 1);
+  await persistence.close();
+});
+
+test("close flushes the latest memory exactly once and rejects subsequent saves", async () => {
+  const brain = new Brain(), storage = storageFor();
+  const persistence = new BrainPersistence(brain, storage, assert.fail);
+  await persistence.load();
+  brain.data.seen.alice.date = 999;
+  const close = persistence.close();
+  assert.strictEqual(persistence.close(), close);
+  await close;
+  assert.equal(storage.writes.length, 1);
+  assert.equal(JSON.parse(storage.saved).seen.alice.date, 999);
+  assert.equal(storage.closes, 1);
+  await assert.rejects(persistence.save());
+});
+
+test("shutdown still closes storage when its final save fails", async () => {
+  const storage = storageFor();
+  storage.write = async () => { throw new Error("offline"); };
+  const brain = new Brain();
+  const persistence = new BrainPersistence(brain, storage, assert.fail);
+  await persistence.load();
+  brain.set("changed", true);
+  await assert.rejects(persistence.close(), /offline/);
+  assert.equal(storage.closes, 1);
+});
+
+test("autosave reports failures and stops when closed", async t => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const storage = storageFor(), errors = [];
+  const brain = new Brain();
+  const persistence = new BrainPersistence(brain, storage, error => errors.push(error));
+  await persistence.load();
+  persistence.start(100);
+  brain.set("first", true);
+  t.mock.timers.tick(100);
+  await new Promise(resolve => setTimeout(resolve, 35));
+  assert.equal(storage.writes.length, 1);
+  const write = storage.write;
+  storage.write = async () => { throw new Error("offline"); };
+  brain.set("second", true);
+  t.mock.timers.tick(100);
+  await new Promise(resolve => setTimeout(resolve, 35));
+  assert.equal(errors.length, 1);
+  storage.write = write;
+  await persistence.close();
+  t.mock.timers.tick(1000);
+  await nextTurn();
+  assert.equal(storage.writes.length, 2);
+});
+
+test("respond accepts legacy names, punctuation and aliases without shifting captures", async () => {
+  const { bot } = botFor({ name: "b.ot", alias: "b.ot-long" });
+  const captures = [];
+  bot.respond(/echo (.+)$/i, response => captures.push(response.match[1]));
+  for (const text of ["b.ot echo one", "@b.ot: echo two", " B.OT, echo three", "b.ot-long echo four", "echo ignored", "bxot echo ignored", "someone b.ot echo ignored"]) {
+    await bot.receive(message(text));
+  }
+  assert.deepEqual(captures, ["one", "two", "three", "four"]);
+});
+
+test("hear preserves global match arrays and resets state between messages", async () => {
+  const { bot } = botFor();
+  const matches = [];
+  bot.hear(/[a-z]+(\+\+|--)/gi, response => matches.push([...response.match]));
+  await bot.receive(message("alice++ bob--"));
+  await bot.receive(message("alice++ bob--"));
+  assert.deepEqual(matches, [["alice++", "bob--"], ["alice++", "bob--"]]);
+});
+
+test("receive middleware runs before matching and can stop all listeners", async () => {
+  const { bot } = botFor();
+  let calls = 0;
+  bot.hear(/.*/, () => calls++);
+  bot.receiveMiddleware(({ response }, next, done) => {
+    if (response.message.text === "blocked") { response.message.finish(); done(); }
+    else { response.message.text = "rewritten"; next(done); }
+  });
+  bot.hear(/^rewritten$/, () => calls++);
+  await bot.receive(message("blocked"));
+  assert.equal(calls, 0);
+  await bot.receive(message("allowed"));
+  assert.equal(calls, 2);
+});
+
+test("listener middleware stops individual listeners and finish stops later matches", async () => {
+  const { bot } = botFor();
+  const calls = [];
+  bot.listenerMiddleware(({ response }, next, done) => {
+    if (response.match[0] === "skip") done(); else next(done);
+  });
+  bot.hear(/skip/, () => calls.push("skipped"));
+  bot.hear(/stop/, response => { calls.push("stop"); response.message.finish(); });
+  bot.hear(/.*/, () => calls.push("last"));
+  await bot.receive(message("skip stop"));
+  assert.deepEqual(calls, ["stop"]);
+});
+
+test("async middleware and handlers retain registration order; handler failures are logged", async () => {
+  const { bot, errors } = botFor();
+  const order = [];
+  bot.receiveMiddleware((context, next, done) => { setImmediate(() => { order.push("middleware"); next(done); }); });
+  bot.hear(/.*/, async () => { await nextTurn(); order.push("first"); throw new Error("handler failed"); });
+  bot.hear(/.*/, () => order.push("second"));
+  await bot.receive(message("hello"));
+  assert.deepEqual(order, ["middleware", "first", "second"]);
+  assert.equal(errors[0].message, "handler failed");
+});
+
+test("send/reply/emote preserve order, envelopes, attachments and thread context", async () => {
+  const { bot, sent } = botFor();
+  const incoming = message("hello");
+  incoming.thread_ts = "123.456";
+  const attachment = { attachments: [{ text: "detail" }] };
+  bot.hear(/hello/, response => {
+    response.send("one", attachment);
+    response.reply("two");
+    response.emote("three");
+  });
+  await bot.receive(incoming);
+  bot.send("general", "four");
+  bot.send(incoming.user, "five");
+  await bot.flush();
+  assert.deepEqual(sent.filter(item => item.envelope.message === incoming).map(item => item.method), ["send", "reply", "emote"]);
+  assert.deepEqual(sent[0].messages, ["one", attachment]);
+  assert.strictEqual(sent[0].envelope.message, incoming);
+  assert.equal(sent[0].envelope.message.thread_ts, "123.456");
+  assert.deepEqual(sent.find(item => item.messages[0] === "four").envelope, { room: "general" });
+  assert.strictEqual(sent.find(item => item.messages[0] === "five").envelope.user, incoming.user);
+});
+
+test("rejected unawaited sends are logged and later sends still run", async () => {
+  const calls = [];
+  const { bot, errors } = botFor({ transport: { async deliver(method, envelope, messages) {
+    calls.push(messages[0]);
+    if (messages[0] === "fail") throw new Error("delivery failed");
+  } } });
+  bot.send("C1", "fail");
+  bot.send("C1", "next");
+  await bot.flush();
+  assert.deepEqual(calls, ["fail", "next"]);
+  assert.equal(errors[0].message, "delivery failed");
+});
+
+test("a blocked destination does not block sends to other channels", async () => {
+  let release;
+  const blocked = new Promise(resolve => { release = resolve; });
+  const calls = [];
+  const { bot } = botFor({ transport: { async deliver(method, envelope, messages) {
+    if (messages[0] === "first") await blocked;
+    calls.push(messages[0]);
+  } } });
+  bot.send("C1", "first");
+  bot.send("C1", "second");
+  bot.send("C2", "other");
+  await nextTurn();
+  assert.deepEqual(calls, ["other"]);
+  release();
+  await bot.flush();
+  assert.deepEqual(calls, ["other", "first", "second"]);
+});
+
+test("respond accepts a leading script anchor without changing capture groups", async () => {
+  const { bot } = botFor();
+  const calls = [];
+  bot.respond(/^ping (.*)$/i, response => calls.push(response.match[1]));
+  await bot.receive(message("bot ping hello"));
+  await bot.receive(message("someone bot ping nope"));
+  assert.deepEqual(calls, ["hello"]);
+});
+
+test("existing internal events still carry script payloads", () => {
+  const { bot } = botFor();
+  const payload = { username: "alice" };
+  let received;
+  bot.on("plusplus", event => { received = event; });
+  bot.emit("plusplus", payload);
+  assert.strictEqual(received, payload);
+});
+
+test("help reads command comments, skips None placeholders and returns a copy", () => {
+  const { bot } = botFor();
+  bot.addHelp(readFileSync(require.resolve("../scripts/help"), "utf8"));
+  bot.addHelp('// Commands:\n//   hubot aaa - first\n// Notes:\n//   not a command');
+  bot.addHelp(readFileSync(require.resolve("../scripts/idlecheck"), "utf8"));
+  bot.addHelp(readFileSync(require.resolve("../scripts/httpd"), "utf8"));
+  bot.addHelp('// Commands:\n//   nOnE');
+  const commands = bot.helpCommands();
+  assert.equal(commands.length, 3);
+  assert.equal(commands[0], "hubot aaa - first");
+  assert(commands.every(command => command.startsWith("hubot ")));
+  assert.equal(commands.some(command => /^none$/i.test(command)), false);
+  commands.length = 0;
+  assert.equal(bot.helpCommands().length, 3);
+});
+
+test("existing ping and echo scripts execute through the local dispatcher unchanged", async () => {
+  const { bot, sent } = botFor();
+  require("../scripts/ping")(bot);
+  for (const text of ["bot ping", "@bot echo hello", "bot adapter", "ping"]) await bot.receive(message(text));
+  await bot.flush();
+  assert.deepEqual(sent.map(item => item.messages), [["PONG"], ["hello"], ["slack"]]);
+});
+
+test("existing privacy middleware blocks Slackbot, private-channel and DM messages", async () => {
+  const { bot } = botFor();
+  require("../scripts/middleware")(bot);
+  let calls = 0;
+  bot.hear(/.*/, () => calls++);
+  const slackbot = message("hello");
+  slackbot.user.id = "USLACKBOT";
+  const privateMessage = message("hello");
+  privateMessage.rawMessage = { channel: { is_private: true } };
+  const dm = message("hello", "D1");
+  dm.rawMessage = { channel: { is_im: true } };
+  for (const incoming of [slackbot, privateMessage, dm]) await bot.receive(incoming);
+  assert.equal(calls, 0);
+  await bot.receive(message("public"));
+  assert.equal(calls, 1);
+});
+
+test("seen retains restored history across loaded events and ignores PM users", async () => {
+  const { bot, brain } = botFor();
+  require("../scripts/seen")(bot);
+  brain.restore(JSON.stringify(fixture()));
+  const incoming = message("hello");
+  incoming.user = { id: "U2", name: "Bob", room: "random" };
+  await bot.receive(incoming);
+  brain.set("another-key", true);
+  assert.deepEqual(brain.data.seen.alice, fixture().seen.alice);
+  assert.equal(brain.data.seen.bob.chan, "random");
+  incoming.user = { id: "U3", name: "Private", pm: true };
+  await bot.receive(incoming);
+  assert.equal(brain.data.seen.private, undefined);
+});
+
+test("leaderboard scores only @mentions and keeps positive minus occurrence counts", async t => {
+  const util = require("../scripts/util");
+  t.mock.method(util, "info", callback => callback(null, "Bob,x,x,x,1,x,x,x,x,x,bob,x,x"));
+  const { bot, brain } = botFor();
+  brain.userForId("U2", { name: "bob" });
+  require("../scripts/leaderboard")(bot);
+  await bot.receive(message("bob--"));
+  assert.equal(brain.get("scorefield").bob, undefined);
+  await bot.receive(message("@bob--"));
+  assert.equal(brain.get("detailedfield").bob.minus.alice, 1);
+  assert.equal(brain.get("scorefield").bob, -1);
+  await bot.flush();
+});
+
+test("leaderboard waits for the member sheet before completing a score event", async t => {
+  const util = require("../scripts/util");
+  let finishLookup;
+  t.mock.method(util, "info", callback => { finishLookup = callback; });
+  const { bot, brain, sent } = botFor();
+  brain.userForId("U2", { name: "bob" });
+  require("../scripts/leaderboard")(bot);
+  const pending = bot.receive(message("@bob++"));
+  await nextTurn();
+  assert.equal(brain.get("scorefield").bob, undefined);
+  finishLookup(null, "Bob,x,x,x,1,x,x,x,x,x,U2,x,x");
+  await pending;
+  await bot.flush();
+  assert.equal(brain.get("scorefield").bob, 1);
+  assert.match(sent[0].messages[0], /bob\+\+.*You're now at 1/);
+});
+
+test("leaderboard reports a missing member sheet without changing scores", async t => {
+  const util = require("../scripts/util");
+  t.mock.method(util, "info", callback => callback(new Error("unavailable")));
+  const { bot, brain, sent } = botFor();
+  brain.userForId("U2", { name: "bob" });
+  require("../scripts/leaderboard")(bot);
+  await bot.receive(message("@bob++"));
+  await bot.flush();
+  assert.equal(brain.get("scorefield").bob, undefined);
+  assert.match(sent[0].messages[0], /member list is unavailable/);
+});
+
+test("leaderboard reuses recent membership and briefly tolerates sheet outages", async t => {
+  const util = require("../scripts/util");
+  let now = 1_000_000, lookups = 0;
+  t.mock.method(Date, "now", () => now);
+  t.mock.method(util, "info", callback => {
+    lookups++;
+    callback(lookups === 1 ? null : new Error("temporary"),
+      lookups === 1 ? "Bob,x,x,x,1,x,x,x,x,x,U2,x,x" : undefined);
+  });
+  const { bot, brain, sent } = botFor();
+  brain.userForId("U2", { name: "bob" });
+  require("../scripts/leaderboard")(bot);
+  await bot.receive(message("@bob++"));
+  await bot.receive(message("@bob--"));
+  assert.equal(lookups, 1);
+  assert.equal(brain.get("scorefield").bob, 0);
+
+  now += 61_000;
+  await bot.receive(message("@bob++"));
+  assert.equal(lookups, 2);
+  assert.equal(brain.get("scorefield").bob, 1);
+
+  now += 300_000;
+  await bot.receive(message("@bob++"));
+  await bot.flush();
+  assert.equal(lookups, 3);
+  assert.equal(brain.get("scorefield").bob, 1);
+  assert.match(sent.at(-1).messages[0], /member list is unavailable/);
+});
+
+function fakeHttp(respond) {
+  const calls = [];
+  return {
+    calls,
+    request(url, options, callback) {
+      const req = new EventEmitter();
+      req.end = body => {
+        calls.push({ url: url.toString(), options, body });
+        queueMicrotask(() => {
+          const res = new EventEmitter();
+          res.statusCode = 200;
+          res.headers = { "content-type": "text/plain" };
+          res.setEncoding = encoding => assert.equal(encoding, "utf8");
+          callback(res);
+          respond(req, res);
+        });
+      };
+      return req;
+    },
+  };
+}
+
+test("HTTP helper stays lazy and preserves merged query parameters and headers", async () => {
+  const fake = fakeHttp((req, res) => { res.emit("data", "hel"); res.emit("data", "lo"); res.emit("end"); });
+  const client = new ScriptHttpClient("https://example.invalid/path?keep=1&q=old", fake.request);
+  const get = client.header("X-Test", "yes").query({ q: "new value", count: 2 }).get();
+  assert.equal(fake.calls.length, 0);
+  await new Promise((resolve, reject) => get((error, res, body) => {
+    try { assert.equal(error, null); assert.equal(res.statusCode, 200); assert.equal(body, "hello"); resolve(); }
+    catch (failure) { reject(failure); }
+  }));
+  assert.equal(fake.calls[0].url, "https://example.invalid/path?keep=1&q=new%20value&count=2");
+  assert.equal(fake.calls[0].options.method, "GET");
+  assert.equal(fake.calls[0].options.headers["x-test"], "yes");
+});
+
+test("HTTP post passes UTF-8 byte lengths and surfaces non-200 responses unchanged", async () => {
+  const fake = fakeHttp((req, res) => { res.statusCode = 302; res.emit("data", "redirect"); res.emit("end"); });
+  await new Promise((resolve, reject) => new ScriptHttpClient("http://example.invalid", fake.request).post("é")((error, res, body) => {
+    try { assert.equal(error, null); assert.equal(res.statusCode, 302); assert.equal(body, "redirect"); resolve(); }
+    catch (failure) { reject(failure); }
+  }));
+  assert.equal(fake.calls.length, 1);
+  assert.equal(fake.calls[0].options.method, "POST");
+  assert.equal(fake.calls[0].options.headers["content-length"], "2");
+  assert.equal(fake.calls[0].body, "é");
+});
+
+test("HTTP failures call back once with null response/body, even after abort and end", async () => {
+  let callbacks = 0;
+  const fake = fakeHttp((req, res) => {
+    res.emit("aborted"); req.emit("error", new Error("socket closed")); res.emit("end");
+  });
+  new ScriptHttpClient("https://example.invalid", fake.request).get()((error, res, body) => {
+    callbacks++;
+    assert.match(error.message, /aborted/);
+    assert.equal(res, null);
+    assert.equal(body, null);
+  });
+  await nextTurn();
+  assert.equal(callbacks, 1);
+  assert.throws(() => new ScriptHttpClient("file:///no-network"), /Unsupported/);
+});
+
+test("synchronous HTTP setup errors use the callback contract", () => {
+  let calls = 0;
+  new ScriptHttpClient("https://example.invalid", () => { throw new Error("setup failed"); }).get()((error, res, body) => {
+    calls++;
+    assert.equal(error.message, "setup failed");
+    assert.equal(res, null);
+    assert.equal(body, null);
+  });
+  assert.equal(calls, 1);
+});
+
+test("inbox workers bound concurrency, preserve per-channel order and drain at shutdown", async () => {
+  const pending = new Map();
+  for (let i = 0; i < 32; i++) {
+    const item = inboxEvent("T1", `Ev${i}`, { type: "message", channel: `C${i}`, ts: "1" });
+    pending.set(item.id, item);
+  }
+  const last = inboxEvent("T1", "EvLast", { type: "message", channel: "C0", ts: "2" });
+  pending.set(last.id, last);
+  let release, active = 0, peak = 0;
+  const gate = new Promise(resolve => { release = resolve; });
+  const seen = [];
+  let lease;
+  const storage = {
+    async prepareInbox() {},
+    async pendingEvents(limit = 64) { return [...pending.values()].slice(0, limit); },
+    async readyEvents(limit = 64) {
+      const channels = new Set(), ready = [];
+      for (const item of pending.values()) {
+        const channel = `${item.team}:${item.channel}`;
+        if (!channels.has(channel)) { channels.add(channel); ready.push(item); }
+        if (ready.length === limit) break;
+      }
+      return ready;
+    },
+    async channelEvents(head, limit = 16) {
+      return [...pending.values()].filter(item => item.team === head.team && item.channel === head.channel).slice(0, limit);
+    },
+    async completeEvent(item) { pending.delete(item.id); }, async failEvent() { return { attempts: 1, deadLettered: false }; },
+    async acquireLease(owner) { lease = owner; return true; }, async renewLease(owner) { return owner === lease; },
+    async releaseLease(owner) { if (lease === owner) lease = undefined; },
+  };
+  const worker = new InboxWorker(storage, async item => {
+    active++; peak = Math.max(peak, active); await gate;
+    seen.push(`${item.channel}:${item.event.ts}`); active--;
+  }, async () => {}, { error: assert.fail });
+  assert.equal(await worker.acquire(), true);
+  await worker.tick();
+  assert.equal(active, 8);
+  // Polling again while handlers remain active must not admit another eight.
+  await worker.tick(); await worker.tick();
+  assert.equal(active, 8);
+  release(); await worker.settle();
+  while (pending.size) { await worker.tick(); await worker.settle(); }
+  await worker.stop();
+  assert.equal(peak, 8);
+  assert(seen.indexOf("C0:1") < seen.indexOf("C0:2"));
+  assert.equal(seen.length, 33);
+});
+
+test("quiescing keeps the worker lease renewed until active work and persistence finish", async t => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const item = inboxEvent("T1", "Slow", { type: "message", channel: "C1", ts: "1" });
+  let releaseWork, lease, renewals = 0, released = false;
+  const gate = new Promise(resolve => { releaseWork = resolve; });
+  let pending = true;
+  const storage = {
+    async prepareInbox() {}, async pendingEvents() { return pending ? [item] : []; },
+    async readyEvents() { return pending ? [item] : []; }, async channelEvents() { return pending ? [item] : []; },
+    async completeEvent() { pending = false; }, async failEvent() { return { attempts: 1, deadLettered: false }; },
+    async acquireLease(owner) { lease = owner; return true; },
+    async renewLease(owner) { renewals++; return owner === lease; },
+    async releaseLease(owner) { if (owner === lease) { lease = undefined; released = true; } },
+  };
+  const worker = new InboxWorker(storage, async () => gate, async () => {}, { error: assert.fail });
+  await worker.acquire(); await worker.tick();
+  const stopping = worker.stop(false);
+  t.mock.timers.tick(20000); await nextTurn(); await nextTurn();
+  assert(renewals >= 1, "shutdown must continue renewing a lease beyond its TTL");
+  assert.equal(released, false);
+  releaseWork(); await stopping;
+  assert.equal(released, false, "stop(false) leaves the lease protecting the caller's final save");
+  await worker.release();
+  assert.equal(released, true);
+});
+
+test("inbox retry retains events on process/save/completion failures without repeating completed work", async t => {
+  t.mock.timers.enable({ apis: ["Date"] });
+  for (const failure of ["process", "save", "complete"]) {
+    const item = inboxEvent("T1", "Ev1", { type: "message", channel: "C1", ts: failure });
+    let pending = true, fail = true, processed = 0, saved = 0;
+    const errors = [];
+    let attempts = 0, lease;
+    const storage = { async prepareInbox() {}, async pendingEvents() { return pending ? [item] : []; },
+    async readyEvents() { return pending ? [item] : []; }, async channelEvents() { return pending ? [item] : []; },
+    async completeEvent() {
+      if (failure === "complete" && fail) { fail = false; throw new Error("storage down"); }
+      pending = false;
+    }, async failEvent() { return { attempts: ++attempts, deadLettered: false }; },
+    async acquireLease(owner) { lease = owner; return true; }, async renewLease(owner) { return owner === lease; },
+    async releaseLease(owner) { if (lease === owner) lease = undefined; } };
+    const worker = new InboxWorker(storage, async () => {
+      processed++;
+      if (failure === "process" && fail) { fail = false; throw new Error("lookup failed"); }
+    }, async () => {
+      saved++;
+      if (failure === "save" && fail) { fail = false; throw new Error("storage down"); }
+    }, { error: (...args) => errors.push(args) });
+    assert.equal(await worker.acquire(), true);
+    await worker.tick(); await worker.settle();
+    assert.equal(pending, true); assert.equal(errors.length, 1);
+    await worker.tick(); await worker.settle();
+    assert.equal(processed, 1);
+    t.mock.timers.tick(5001);
+    await worker.tick(); await worker.settle();
+    assert.equal(pending, false);
+    assert.equal(processed, failure === "process" ? 2 : 1);
+    assert.equal(saved, failure === "process" ? 1 : 2);
+    await worker.stop();
+  }
+});
+
+test("exhausted inbox retries move poison events to a bounded dead-letter path", async t => {
+  t.mock.timers.enable({ apis: ["Date"] });
+  const item = inboxEvent("T1", "Poison", { type: "message", channel: "C1", ts: "1" });
+  const pending = new Map([[item.id, item]]), dead = new Map(), retries = new Map();
+  let lease;
+  const storage = {
+    async prepareInbox() {},
+    async pendingEvents(limit = 64) { return [...pending.values()].slice(0, limit); },
+    async readyEvents(limit = 64) { return [...pending.values()].slice(0, limit); },
+    async channelEvents(head, limit = 16) { return [...pending.values()].slice(0, limit); },
+    async completeEvent(item) { pending.delete(item.id); },
+    async failEvent(item, reason, maximum) {
+      const id = item.id;
+      const attempts = (retries.get(id) || 0) + 1; retries.set(id, attempts);
+      if (attempts < maximum) return { attempts, deadLettered: false };
+      dead.set(id, { event: pending.get(id), reason, attempts }); pending.delete(id); retries.delete(id);
+      return { attempts, deadLettered: true };
+    },
+    async acquireLease(owner) { lease = owner; return true; }, async renewLease(owner) { return owner === lease; },
+    async releaseLease(owner) { if (owner === lease) lease = undefined; },
+  };
+  const errors = [];
+  const worker = new InboxWorker(storage, async () => { throw new Error("poison"); }, async () => {},
+    { error: (...args) => errors.push(args) });
+  await worker.acquire();
+  for (let attempt = 0; attempt < MAX_EVENT_ATTEMPTS; attempt++) {
+    await worker.tick(); await worker.settle();
+    t.mock.timers.tick(300001);
+  }
+  assert.equal(pending.size, 0);
+  assert.equal(dead.get(item.id).attempts, MAX_EVENT_ATTEMPTS);
+  assert(errors.some(args => String(args[0]).includes("dead-letter")));
+  await worker.stop();
+});

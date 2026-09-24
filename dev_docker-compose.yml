@@ -12,3 +12,7 @@ services:
       - 127.0.0.1:9998:8080
     env_file:
       - .env
+    environment:
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      - redis

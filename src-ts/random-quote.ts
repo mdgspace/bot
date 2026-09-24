@@ -2,8 +2,7 @@
 //   Fetches and sends a random quote from the internet.
 //
 // Dependencies:
-//   node-soupselect
-//   node-htmlparser
+//   htmlparser2
 //
 // Configuration:
 //   NONE
@@ -11,10 +10,9 @@
 // Commands:
 //   random quote
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 
-import { select } from "soupselect";
-import * as htmlparser from "htmlparser";
+import { parseDocument, DomUtils } from "htmlparser2";
 
 type QuoteCallback = (
   success: boolean,
@@ -35,25 +33,15 @@ export = (robot: Robot): void => {
           return;
         }
 
-        const handler = new htmlparser.DefaultHandler(
-          (err2, dom) => {
-            if (err2) {
-              callback(false);
-            } else {
-              const quote = select(dom, "blockquote p")[0]?.children?.[0]?.raw;
-              const author = select(dom, "blockquote footer cite")[0]
-                ?.children?.[0]?.raw;
-              if (quote && author) {
-                callback(true, quote, author);
-              } else {
-                callback(false);
-              }
-            }
-          },
-        );
-
-        const parser = new htmlparser.Parser(handler);
-        parser.parseComplete(body);
+        const blocks = DomUtils.getElementsByTagName("blockquote", parseDocument(body, { decodeEntities: false }).children);
+        const paragraphs = blocks.flatMap(block => DomUtils.getElementsByTagName("p", block.children));
+        const citations = blocks.flatMap(block => DomUtils.getElementsByTagName("footer", block.children))
+          .flatMap(footer => DomUtils.getElementsByTagName("cite", footer.children));
+        const quote = paragraphs[0]?.children[0];
+        const author = citations[0]?.children[0];
+        if (quote?.type === "text" && author?.type === "text" && quote.data && author.data)
+          callback(true, quote.data, author.data);
+        else callback(false);
       },
     );
   };

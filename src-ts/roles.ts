@@ -10,7 +10,7 @@
 //   hubot holman is an ego surfer
 //   hubot holman is not an ego surfer
 
-import { Robot, User } from 'hubot';
+import type { Robot, User } from "./runtime/types";
 
 function getAmbiguousUserText(users: User[]): string {
   return `Be more specific, I know ${users.length} people named like that: ${users.map((u) => u.name).join(', ')}`;

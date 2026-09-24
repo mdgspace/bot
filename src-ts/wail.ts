@@ -10,7 +10,7 @@
 // Commands:
 //   hubot who all in lab
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 
 export = (robot: Robot): void => {
   robot.respond(/who.*lab/i, (msg) => {

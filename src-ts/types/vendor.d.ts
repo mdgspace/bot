@@ -3,6 +3,7 @@
 
 declare module "follow-redirects" {
   export const https: typeof import("https");
+  export const http: typeof import("http");
 }
 
 declare module "moment" {
@@ -27,29 +28,4 @@ declare module "natural/lib/natural/tokenizers/regexp_tokenizer" {
 declare module "node-time-ago" {
   function timeago(date: Date): string;
   export = timeago;
-}
-
-declare module "soupselect" {
-  export interface DomNode {
-    type?: string;
-    name?: string;
-    attribs?: Record<string, string>;
-    children?: DomNode[];
-    raw?: string;
-    data?: string;
-  }
-  export function select(dom: DomNode[], selector: string): DomNode[];
-}
-
-declare module "htmlparser" {
-  import { DomNode } from "soupselect";
-
-  export class DefaultHandler {
-    constructor(callback: (err: Error | undefined, dom: DomNode[]) => void);
-  }
-
-  export class Parser {
-    constructor(handler: DefaultHandler, options?: Record<string, unknown>);
-    parseComplete(data: string): void;
-  }
 }

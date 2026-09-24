@@ -1,14 +1,14 @@
 // Description:
 //   gets MDG member's info from google doc
-//   Type a partial name to get all matches
+//   Type a partial spreadsheet name or an exact Slack username, display, or real name
 //
 // Configuration:
 //   INFO_SPREADSHEET_URL
 //
 // Commands:
-//   hubot info <partial name> - Get information about a person
+//   hubot info <name> - Get information by partial spreadsheet name or Slack username, display, or real name
 
-import { Robot } from "hubot";
+import type { Response, Robot, User } from "./runtime/types";
 
 import moment from "moment";
 import { info } from "./util";
@@ -32,6 +32,31 @@ function parse(json: string, query: string): string[][] | null {
   return result;
 }
 
+function slackUsersForQuery(robot: Robot, msg: Response, query: string): User[] {
+  const name = query.trim().replace(/^@/, "").toLowerCase();
+  const selectedId = query.trim().startsWith("@") ? msg.message.slackUserMentions?.[0] : undefined;
+  if (selectedId) {
+    const selected = robot.brain.data.users[selectedId];
+    return selected ? [selected] : [];
+  }
+  const users = Object.values(robot.brain.data.users);
+  const usernames = users.filter((user) => typeof user.name === "string" && user.name.toLowerCase() === name);
+  if (usernames.length) return usernames;
+  return users.filter((user) => [user.display_name, user.real_name].some(
+    (candidate) => typeof candidate === "string" && candidate.trim().toLowerCase() === name,
+  ));
+}
+
+function parseForSlackUsers(json: string, users: User[]): string[][] | null {
+  const identifiers = new Set(users.flatMap((user) => [user.id, user.name]
+    .filter((value): value is string => typeof value === "string" && value !== "")
+    .map((value) => value.toLowerCase())));
+  const matches = json.split("\n")
+    .map((line) => line.split(",").map((field) => field.trim()))
+    .filter((row) => identifiers.has((row[10] || "").toLowerCase()));
+  return matches.length ? matches : null;
+}
+
 function randomColor(): string {
   return "#" + (0x1000000 + Math.random() * 0xffffff).toString(16).slice(1, 7);
 }
@@ -44,7 +69,8 @@ export = (robot: Robot): void => {
         msg.send(`Could not fetch member data :( ${err}`);
         return;
       }
-      const result = parse(body, query);
+      const users = slackUsersForQuery(robot, msg, query);
+      const result = (users.length ? parseForSlackUsers(body, users) : null) || parse(body, query);
       if (!result) {
         msg.send("I could not find a user matching `" + query.toString() + "`");
       } else {

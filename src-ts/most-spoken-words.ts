@@ -15,7 +15,7 @@
 //   bot stats
 //
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 
 import * as cron from "node-cron";
 import { WordTokenizer } from "natural/lib/natural/tokenizers/regexp_tokenizer";

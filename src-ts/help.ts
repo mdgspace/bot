@@ -11,7 +11,7 @@
 // Notes:
 //   These commands are grabbed from comment blocks at the top of each file.
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 
 function helpContents(name: string, commands: string): string {
   return `

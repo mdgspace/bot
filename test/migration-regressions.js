@@ -52,43 +52,10 @@ test("most-spoken-words loads without optional native classifiers", () => {
   assert.strictEqual(typeof require("../scripts/most-spoken-words"), "function");
 });
 
-test("minus events remain positive occurrence counts", () => {
-  const util = require("../scripts/util");
-  const originalInfo = util.info;
-  util.info = (callback) =>
-    callback(null, "Bob,x,x,x,1,x,x,x,x,x,bob,x,x");
-
-  let hearHandler;
-  const store = {};
-  require("../scripts/leaderboard")({
-    brain: {
-      get: (key) => store[key],
-      set: (key, value) => {
-        store[key] = value;
-      },
-    },
-    hear: (regex, callback) => {
-      hearHandler = callback;
-    },
-    listenerMiddleware() {},
-    logger,
-    on() {},
-    respond() {},
-  });
-
-  hearHandler({
-    match: ["bob--"],
-    message: { text: "bob--", user: { name: "alice" } },
-    send() {},
-  });
-  util.info = originalInfo;
-  assert.strictEqual(store.detailedfield.bob.minus.alice, 1);
-});
-
 test("detailed score handles a fresh brain", () => {
   let handler;
   require("../scripts/detailed-score")({
-    brain: { get: () => undefined },
+    brain: { data: { users: {} }, get: () => undefined },
     respond: (regex, callback) => {
       handler = callback;
     },
@@ -184,6 +151,49 @@ test("Google Images handles a null network response", () => {
   else process.env.HUBOT_GOOGLE_CSE_KEY = previousKey;
   assert.strictEqual(sent.length, 1);
   assert.ok(/Encountered an error/.test(sent[0]));
+});
+
+test("translation detects the source language and reports API quota failures", () => {
+  const previousKey = process.env.HUBOT_GOOGLE_TRANSLATE_API_KEY;
+  const modulePath = require.resolve("../scripts/translate");
+  process.env.HUBOT_GOOGLE_TRANSLATE_API_KEY = "offline-translation-key";
+  delete require.cache[modulePath];
+  try {
+    let handler;
+    require(modulePath)({ respond: (_pattern, callback) => { handler = callback; }, emit() {} });
+    const run = (match, statusCode, response) => {
+      const sent = [];
+      let query;
+      const http = {
+        query(params) { query = params; return this; },
+        get() { return callback => callback(null, { statusCode }, JSON.stringify(response)); },
+      };
+      handler({ match, http: () => http, send: message => sent.push(message) });
+      return { query, sent };
+    };
+
+    const automatic = run(["translate me hola", undefined, undefined, " hola"], 200,
+      { data: { translations: [{ detectedSourceLanguage: "es", translatedText: "hello" }] } });
+    assert.strictEqual(automatic.query.source, undefined);
+    assert.strictEqual(automatic.query.q, '"hola"');
+    assert.deepStrictEqual(automatic.sent, ['"hola" is Spanish for hello']);
+
+    const explicit = run(["translate me from French into English bonjour", "French", "English", " bonjour"], 200,
+      { data: { translations: [{ translatedText: "hello" }] } });
+    assert.strictEqual(explicit.query.source, "fr");
+    assert.deepStrictEqual(explicit.sent, ['The French "bonjour" translates as hello in English']);
+
+    const quota = run(["translate me hola", undefined, undefined, " hola"], 403,
+      { error: { message: "User Rate Limit Exceeded" } });
+    assert.deepStrictEqual(quota.sent, ["Google Translate quota exceeded; check the project's Cloud Translation quotas."]);
+    const invalid = run(["translate me hola", undefined, undefined, " hola"], 400,
+      { error: { message: "Invalid Value" } });
+    assert.deepStrictEqual(invalid.sent, ["Google Translate request failed (HTTP 400)."]);
+  } finally {
+    if (previousKey === undefined) delete process.env.HUBOT_GOOGLE_TRANSLATE_API_KEY;
+    else process.env.HUBOT_GOOGLE_TRANSLATE_API_KEY = previousKey;
+    delete require.cache[modulePath];
+  }
 });
 
 test("announcement webhook completes its HTTP response", () => {

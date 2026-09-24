@@ -2,10 +2,11 @@
 //   Script for maininting scores of different users.
 //
 // Commands:
-//   name++ or name-- : Adds/subtracts 1 point to/from user's score
-//   hubot score name : Shows current score of the user
+//   @name++ or @name-- : Adds/subtracts 1 point to/from a mentioned user's score
+//   hubot score name or hubot score @name : Shows a user's score by exact or unique partial name
 
-import { Robot, Response } from "hubot";
+import type { Robot, Response } from "./runtime/types";
+import { scoreNameForQuery } from "./runtime/score-user";
 
 import { info } from "./util";
 
@@ -177,93 +178,97 @@ export = (robot: Robot): void => {
     return { New: newscore, Name: name, Response: response };
   };
 
-  const getSlackIds = (callback: (slackIds: string[]) => void): void => {
-    info((err, body) => {
-      if (err || body == null) {
-        robot.logger.warning(`leaderboard: could not fetch slack ids: ${err}`);
-        return;
-      }
-      const slackIds: string[] = [];
-      for (const user of parse(body)) {
-        if (user.length >= 13 && user[10]) {
-          slackIds.push(user[10]);
+  let cachedMembers: { ids: string[]; fetchedAt: number } | undefined;
+  let pendingMembers: Promise<string[] | null> | undefined;
+  const getSlackIds = (): Promise<string[] | null> => {
+    const now = Date.now();
+    if (cachedMembers && now - cachedMembers.fetchedAt < 60_000) {
+      return Promise.resolve(cachedMembers.ids);
+    }
+    if (pendingMembers) return pendingMembers;
+    pendingMembers = new Promise<string[] | null>((resolve) => {
+      info((err, body) => {
+        if (err || body == null) {
+          robot.logger.warning(`leaderboard: could not fetch slack ids: ${err}`);
+          resolve(null);
+          return;
         }
+        const ids = parse(body)
+          .filter((user) => user.length >= 13 && user[10])
+          .map((user) => user[10]);
+        if (ids.length === 0) {
+          robot.logger.warning("leaderboard: member spreadsheet contained no Slack users");
+          resolve(null);
+          return;
+        }
+        resolve(ids);
+      });
+    }).then((ids) => {
+      if (ids) {
+        cachedMembers = { ids, fetchedAt: Date.now() };
+        return ids;
       }
-      callback(slackIds);
-    });
+      // A brief sheet outage should not interrupt scores immediately after a
+      // successful read, but stale membership must not be trusted forever.
+      return cachedMembers && Date.now() - cachedMembers.fetchedAt < 300_000
+        ? cachedMembers.ids : null;
+    }).finally(() => { pendingMembers = undefined; });
+    return pendingMembers;
   };
 
-  // listen for any [word](++/--) in chat and react/update score
-  robot.hear(/[a-zA-Z0-9\-_]+(\-\-|\+\+)/gi, (msg) => {
-    // message for score update that bot will return
-    let oldmsg = msg.message.text || "";
+  // A selected Slack mention appears as <@U...> in the signed raw event, but
+  // can normalize to a display name with spaces. Parse the raw event so the
+  // score target is the actual member, not a fragment of their display name.
+  robot.hear(/\+\+|--/g, async (msg) => {
+    const raw = msg.message.rawSlackText ?? msg.message.text ?? "";
+    const mentions = [...raw.matchAll(/<@([UW][A-Z0-9]+)(?:\|[^>]*)?>(\+\+|--)|(^|[^\w<])@([a-z0-9._-]+)(\+\+|--)/gim)];
+    if (mentions.length === 0) return;
 
-    // data-store object
     const ScoreField = scorefield();
-
-    // skipped word list
     const SkippedList = skippedlist();
-
-    // index keeping an eye on position, where next replace will be
-    let start = 0;
-    let end = 0;
-
-    // reply only when there exist atleast one testword which
-    // is neither skipped nor its length greater than 30
-    let reply = false;
-    let finalnewmsg = "";
-
-    getSlackIds((slackIds) => {
-      // for each ++/--
-      for (let i = 0; i < msg.match.length; i++) {
-        const testword = msg.match[i];
-
-        end = start + testword.length;
-
-        let newmsg: string;
-
-        // check if testword is already skipped or it is too lengthy
-        if (
-          SkippedList.includes(testword.slice(0, -2)) ||
-          testword.length > 30
-        ) {
-          newmsg = "";
-        } else {
-          reply = true;
-          // updates Scoring for words, accordingly and returns result string
-          const result = updateScore(
-            testword,
-            ScoreField,
-            msg.message.user.name,
-            slackIds,
+    const slackIds = await getSlackIds();
+    if (!slackIds) {
+      msg.send("Could not update scores because the member list is unavailable.");
+      return;
+    }
+    const replies: string[] = [];
+    for (const mention of mentions) {
+      const id = mention[1];
+      const typedName = mention[4]?.toLowerCase();
+      const operation = mention[2] ?? mention[5];
+      const user = id
+        ? robot.brain.data.users[id]
+        : Object.values(robot.brain.data.users).find((candidate) =>
+            candidate.name?.toLowerCase() === typedName,
           );
-
-          // generates response message for reply
-          if (result.Response === "-1") {
-            newmsg = `${testword} [Sorry, You can't give ++ or -- to yourself.]`;
-          } else if (result.Response === "0") {
-            newmsg = `${result.Name}? Never heard of 'em `;
-          } else {
-            newmsg = `${testword} [${result.Response} You're now at ${result.New}] `;
-          }
-        }
-
-        oldmsg = oldmsg.substr(0, start) + oldmsg.substr(end + 1);
-        finalnewmsg += newmsg + "\n";
+      const name = user?.name?.toLowerCase();
+      if (!user || !name) {
+        replies.push(`${typedName ?? id}? Never heard of 'em`);
+        continue;
       }
-
-      if (reply) {
-        // reply with updated message
-        msg.send(`${finalnewmsg}`);
+      if (SkippedList.includes(name) || name.length + 2 > 30) continue;
+      const allowed = slackIds.some((member) =>
+        member.toLowerCase() === name || member.toLowerCase() === user.id.toLowerCase(),
+      );
+      const result = updateScore(
+        `${name}${operation}`, ScoreField, msg.message.user.name,
+        allowed ? [name] : [],
+      );
+      if (result.Response === "-1") {
+        replies.push(`${name}${operation} [Sorry, You can't give ++ or -- to yourself.]`);
+      } else if (result.Response === "0") {
+        replies.push(`${name}? Never heard of 'em`);
+      } else {
+        replies.push(`${name}${operation} [${result.Response} You're now at ${result.New}]`);
       }
-    });
+    }
+    if (replies.length) msg.send(`${replies.join("\n")}\n`);
   });
 
   // response for score status of any <keyword>
-  robot.respond(/score ([\w\-_]+)/i, (msg) => {
+  robot.respond(/score (.+)$/i, (msg) => {
     // we do not want to reply in case of batch score is requested
-    const fxx = /f\d\d/i;
-    if (fxx.exec(msg.match[0])) {
+    if (/^f\d\d(?:\s+-[bp])?$/i.test(msg.match[1].trim())) {
       return;
     }
 
@@ -271,7 +276,7 @@ export = (robot: Robot): void => {
     const ScoreField = scorefield();
 
     // <keyword> whose score is to be shown
-    const name = msg.match[1].toLowerCase();
+    const name = scoreNameForQuery(robot, msg, msg.match[1]);
 
     // If the key exist
     if (ScoreField[name] !== undefined) {
@@ -279,6 +284,28 @@ export = (robot: Robot): void => {
       const currentscore = ScoreField[name];
       msg.send(`${name} : ${currentscore}`);
     } else {
+      // Scores are stored under Slack usernames. Keep exact usernames and
+      // real/display names ahead of partial matches to avoid changing them.
+      const users = Object.values(robot.brain.data.users);
+      if (name && !users.some((user) => typeof user.name === "string" && user.name.toLowerCase() === name)) {
+        const exactAliases = users.filter((user) => typeof user.name === "string" &&
+          [user.real_name, user.display_name].some(
+            (candidate) => typeof candidate === "string" && candidate.trim().toLowerCase() === name,
+          ));
+        const candidates = exactAliases.length ? exactAliases : users.filter((user) =>
+          typeof user.name === "string" && [user.name, user.real_name, user.display_name].some(
+            (candidate) => typeof candidate === "string" && candidate.toLowerCase().includes(name),
+          ));
+        const matches = [...new Set(candidates.map((user) => user.name.toLowerCase()))];
+        if (matches.length > 1) {
+          msg.send(`Be more specific, I know ${matches.length} people named like that: ${matches.join(", ")}`);
+          return;
+        }
+        if (matches.length === 1 && ScoreField[matches[0]] !== undefined) {
+          msg.send(`${matches[0]} : ${ScoreField[matches[0]]}`);
+          return;
+        }
+      }
       msg.send(`${name}? Never heard of 'em`);
     }
   });

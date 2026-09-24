@@ -5,7 +5,7 @@
 //   hubot translate me <phrase> - Searches for a translation for the <phrase> and then prints that bad boy out.
 //   hubot translate me from <source> into <target> <phrase> - Translates <phrase> from <source> into <target>. Both <source> and <target> are optional
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 
 const API_KEY = process.env.HUBOT_GOOGLE_TRANSLATE_API_KEY;
 
@@ -119,29 +119,48 @@ export = (robot: Robot): void => {
       .http("https://www.googleapis.com/language/translate/v2")
       .query({
         key: API_KEY,
-        source: origin,
+        // Omitting source asks Google to detect it; "auto" is not a language code.
+        ...(origin === "auto" ? {} : { source: origin }),
         target: target,
         q: term,
       })
       .get()((err, res, body) => {
-      if (err || body == null) {
+      if (err || !res || body == null) {
         msg.send("Failed to connect to GAPI");
-        robot.emit("error", err, res);
+        robot.emit("error", err || new Error("Empty Google Translate response"), res);
+        return;
+      }
+
+      if (res.statusCode !== 200) {
+        let reason = "";
+        try {
+          const error = JSON.parse(body).error?.message;
+          if (typeof error === "string") reason = error;
+        } catch { /* Keep the HTTP status when Google does not return JSON. */ }
+        if (res.statusCode === 403 && /(?:User Rate Limit Exceeded|Daily Limit Exceeded)/i.test(reason)) {
+          msg.send("Google Translate quota exceeded; check the project's Cloud Translation quotas.");
+        } else {
+          msg.send(`Google Translate request failed (HTTP ${res.statusCode}).`);
+        }
+        robot.emit("error", new Error(`Google Translate HTTP ${res.statusCode}`));
         return;
       }
 
       try {
-        const parsed = JSON.parse(body).data.translations[0];
-        if (parsed) {
-          const language = languages[parsed.detectedSourceLanguage];
-          const translated = parsed.translatedText;
-          if (msg.match[2] === undefined) {
-            msg.send(`${term} is ${language} for ${translated}`);
-          } else {
-            msg.send(
-              `The ${language} ${term} translates as ${translated} in ${languages[target]}`,
-            );
-          }
+        const parsed = JSON.parse(body).data?.translations?.[0];
+        if (typeof parsed?.translatedText !== "string") {
+          msg.send("Google Translate returned an unexpected response.");
+          return;
+        }
+        const source = parsed.detectedSourceLanguage || origin;
+        const language = languages[source] || source;
+        const translated = parsed.translatedText;
+        if (msg.match[2] === undefined) {
+          msg.send(`${term} is ${language} for ${translated}`);
+        } else {
+          msg.send(
+            `The ${language} ${term} translates as ${translated} in ${languages[target]}`,
+          );
         }
       } catch (err2) {
         msg.send("Failed to parse GAPI response");

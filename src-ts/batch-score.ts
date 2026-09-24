@@ -9,7 +9,8 @@
 //   hubot score fxx -b -> for bar graph
 //   hubot score fxx -p -> for pie graph
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
+import { scoreForMember } from "./runtime/score-user";
 
 import { graph, info } from "./util";
 
@@ -137,7 +138,7 @@ export = (robot: Robot): void => {
           for (let i = 1; i <= slackId.length - 1; i++) {
             // entries may be bare strings or single-element [id] arrays;
             // object-key coercion makes both behave identically.
-            userScore[i] = scoreField[String(slackId[i])] || 0;
+            userScore[i] = scoreForMember(robot, scoreField, String(slackId[i]));
           }
 
           userName = padright(userName);
@@ -170,7 +171,7 @@ export = (robot: Robot): void => {
 
           const scores: number[] = [];
           for (let i = 0; i <= slackId.length - 1; i++) {
-            scores[i] = scoreField[String(slackId[i])] || 0;
+            scores[i] = scoreForMember(robot, scoreField, String(slackId[i]));
           }
 
           const chart = {

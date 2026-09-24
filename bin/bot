@@ -1,0 +1,37 @@
+#!/bin/sh
+
+set -e
+
+if [ ! -f scripts/main.js ]; then
+  echo "Cannot launch bot: run npm ci --omit=optional --legacy-peer-deps and npm run build first." >&2
+  exit 1
+fi
+
+# Accept the two legacy launcher flags while deployments move to environment
+# variables. Bolt itself is always the Slack adapter.
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -n|--name)
+      if [ "$#" -lt 2 ]; then
+        echo "Missing bot name after $1" >&2
+        exit 1
+      fi
+      BOT_NAME="$2"
+      export BOT_NAME
+      shift 2
+      ;;
+    -a|--adapter)
+      if [ "$#" -lt 2 ] || [ "$2" != "slack" ]; then
+        echo "Bolt supports only the Slack adapter." >&2
+        exit 1
+      fi
+      shift 2
+      ;;
+    *)
+      echo "Unknown launcher argument: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+exec node --env-file-if-exists=.env scripts/main.js

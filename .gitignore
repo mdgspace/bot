@@ -14,3 +14,4 @@ data/
 # compiled TypeScript output (built via npm run build)
 scripts/*.js
 scripts/*.js.map
+scripts/runtime/

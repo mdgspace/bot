@@ -14,7 +14,7 @@
 //   hubot animate me <query> - The same thing as `image me`, except adds a few parameters to try to return an animated GIF instead.
 //   hubot mustache me <url|query> - Adds a mustache to the specified URL or query result.
 
-import { Robot, Response } from "hubot";
+import type { Robot, Response } from "./runtime/types";
 
 type ImageCallback = (url: string) => void;
 

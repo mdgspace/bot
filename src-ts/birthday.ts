@@ -7,7 +7,7 @@
 // Commands:
 //   hubot birthday <user>
 
-import { Robot } from "hubot";
+import type { Robot } from "./runtime/types";
 
 import moment from "moment";
 import * as cron from "node-cron";
