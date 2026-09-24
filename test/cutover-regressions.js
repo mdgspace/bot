@@ -91,6 +91,24 @@ test("all production scripts register offline and retain help commands", async t
   assert(sent.some(item => /^https?:\/\//.test(item.messages[0])));
 });
 
+test("bot help lists the numbered and unknown key commands", async () => {
+  const { bot, sent } = botFixture();
+  bot.addHelp(fs.readFileSync(require.resolve("../scripts/keys"), "utf8"));
+  require("../scripts/help")(bot);
+
+  await command(bot, "bot help k1");
+  for (const command of [
+    "bot who has k1", "bot i have k1", "bot <name> has k1",
+    "bot i don't have k1", "bot i gave k1 to <name>",
+  ]) assert(sent.at(-1).messages[0].includes(command), command);
+
+  await command(bot, "bot help unknown");
+  for (const command of [
+    "bot who has unknown keys", "bot <name> has unknown keys",
+    "bot i don't have unknown keys", "bot i gave unknown keys to <name>",
+  ]) assert(sent.at(-1).messages[0].includes(command), command);
+});
+
 test("persisted environment is restored without logging secret values", t => {
   preserveEnvironment(t, ["CUTOVER_BOOT_VALUE", "SLACK_BOT_TOKEN"]);
   const brain = new Brain();
