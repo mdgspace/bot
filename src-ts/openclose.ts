@@ -6,9 +6,35 @@
 //   bot lab is open/close
 
 import type { Robot } from "./runtime/types";
+import * as cron from "node-cron";
 
-export = (robot: Robot): void => {
+const istTime = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Asia/Kolkata",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+export = (robot: Robot, now: () => Date = () => new Date()): void => {
   let status = "";
+  let lastAutoCloseDate = "";
+
+  // node-cron 1.x uses the host timezone, so check the Kolkata wall clock
+  // explicitly instead of relying on the deployment's TZ setting.
+  cron.schedule("* * * * *", () => {
+    const parts = Object.fromEntries(
+      istTime.formatToParts(now()).map(({ type, value }) => [type, value]),
+    );
+    const date = `${parts.year}-${parts.month}-${parts.day}`;
+    if (parts.hour !== "02" || parts.minute !== "00" || date === lastAutoCloseDate) return;
+
+    lastAutoCloseDate = date;
+    status = "closed";
+    robot.send({ room: "general" }, "Lab is now closed (auto-updated at 2:00 AM IST).");
+  });
 
   robot.hear(/lab is (open|closed|close)/i, (msg) => {
     status = msg.match[1];
