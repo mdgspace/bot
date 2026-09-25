@@ -120,11 +120,13 @@ As in the old middleware, incoming DM/private-channel commands are disabled. Thr
 
 ## Lab keys
 
-Keys are identified by number: `k0` is the master key, and `k1`, `k2`, and later `kN` values are created as they are assigned. More than one member may hold each key. For example, `bot alice has k1` and `bot bob has k1` add both holders; `bot who has k1` lists them together. `bot who has keys` lists every recorded key and its holders.
+There are ten numbered keys: `k0` through `k9`, with `k0` as the master key. More than one member may hold each key. For example, `bot alice has k1` and `bot bob has k1` add both holders; `bot who has k1` lists them together. `bot who has keys` lists every recorded key and its holders, with `kx` listed last.
 
-Commands without a key number, such as `bot alice has keys` or `bot i have keys of ravi`, record the member under **unknown keys**, not under `k0`. Use `bot who has unknown keys` to inspect that group. A member can say `bot i don't have k1` to leave one numbered key, `bot i don't have unknown keys` to leave the unknown group, or `bot i don't have keys` to leave all groups. `bot i gave k1 to bob` transfers one key; omitting the number transfers all of the sender's recorded keys.
+`kx` is the group for a key whose number is unknown; it is separate from the ten numbered keys. Commands without a key number, such as `bot alice has keys` or `bot i have keys of ravi`, record the member under `kx`, not `k0`. Use `bot who has kx` to inspect that group. Explicit numbered keys outside `k0`–`k9` (for example, `k10` or `k71`) are rejected with an error rather than being treated as `kx`.
 
-The old owner-based `key` brain data is retained for recovery but is not guessed into numbered keys. New holder groups start empty under `key-holders-v2`; assign the actual holders in Slack after deployment. If a member explicitly removes all their keys, their old entries are removed from the active legacy array after a one-time backup under `key-legacy-backup`.
+A member can say `bot i don't have k1` to leave one numbered key, `bot i don't have kx` to leave `kx`, or `bot i don't have keys` to leave all groups. To correct another holder's record, use `bot alice doesn't have k1` or `bot alice does not have kx`. `bot i gave k1 to bob` transfers one key; `bot i gave kx to bob` transfers the `kx` record; omitting the key transfers all of the sender's recorded keys. Key commands accept trailing spaces and punctuation such as `?`, `.` and `!`.
+
+Existing holder data using the old `unknown` group is migrated to `kx`; previously accepted numbered groups above `k9` are preserved in `key-holders-v2-unsupported-backup` for manual review, not reclassified as `kx`. The old owner-based `key` brain data is retained for recovery but is not guessed into numbered keys. New holder groups start empty under `key-holders-v2`; assign the actual holders in Slack after deployment. If a member explicitly removes all their keys, their old entries are removed from the active legacy array after a one-time backup under `key-legacy-backup`.
 
 ## Persistent environment commands
 
