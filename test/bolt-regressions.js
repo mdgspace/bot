@@ -399,7 +399,7 @@ test("normalization retains mentions, channel labels, links, entities and attach
   assert.equal(received, "@bot ping\nattachment text");
 });
 
-test("keys shorthand accepts display names, typed @names, and an omitted owner", async () => {
+test("unspecified keys use kx, including display and typed @names", async () => {
   const { brain, directory, bot, events, api } = adapterSetup();
   require("../scripts/keys")(bot);
   directory.updateUser({ id: "U1", name: "alice", profile: { display_name: "Bolt Fixture One" } });
@@ -408,13 +408,12 @@ test("keys shorthand accepts display names, typed @names, and an omitted owner",
   await events.receive("T1", event({ text: "<@UBOT> i have keys", ts: "203" }));
   await events.receive("T1", event({ text: "<@UBOT> who has keys", ts: "204" }));
   await bot.flush();
-  assert.deepEqual(brain.get("key"), [
-    { holder: "alice", owner: "lab" },
-    { holder: "alice", owner: "lab" },
-    { holder: "alice", owner: "lab" },
-  ]);
+  assert.deepEqual(brain.get("key-holders-v2"), {
+    version: 2, groups: { kx: [{ id: "U1", name: "alice" }] },
+  });
+  assert.equal(brain.get("key"), null);
   assert.equal(api.posts.length, 4, JSON.stringify(api.posts.map(post => post.text)));
-  assert.match(api.posts[3].text, /lab's key are with alice/);
+  assert.equal(api.posts[3].text, "kx: alice");
 });
 
 test("selected Slack mentions identify the key holder even when display names collide", async () => {
@@ -427,13 +426,168 @@ test("selected Slack mentions identify the key holder even when display names co
   await events.receive("T1", event({ text: "<@UBOT> alice has keys of fixture-two", ts: "207" }));
   await bot.flush();
   assert.match(api.posts[0].text, /Be more specific/);
-  assert.deepEqual(brain.get("key"), [
-    { holder: "fixture-two", owner: "lab" },
-    { holder: "alice", owner: "fixture-two" },
-  ]);
+  assert.deepEqual(brain.get("key-holders-v2"), {
+    version: 2, groups: { kx: [
+      { id: "U2", name: "fixture-two" },
+      { id: "U1", name: "alice" },
+    ] },
+  });
   assert.equal(brain.data.users.U2.display_name, "Alex");
   assert.equal(brain.data.users.U2.email_address, undefined);
   assert.equal(brain.data.users.U2.slack.profile, undefined);
+});
+
+test("numbered keys accept only k0 through k9 and list every holder once per key", async () => {
+  const { brain, directory, bot, events, api } = adapterSetup();
+  require("../scripts/keys")(bot);
+  directory.updateUser({ id: "U2", name: "bob" });
+  const commands = Array.from({ length: 10 }, (_, key) => `alice has k${key}`);
+  commands.push("bob has k9", "who has keys", "who has k9");
+  for (const [index, text] of commands.entries()) {
+    await events.receive("T1", event({ text: `<@UBOT> ${text}`, ts: `key-${index}` }));
+  }
+  await bot.flush();
+  const expectedGroups = Object.fromEntries(Array.from({ length: 10 }, (_, key) => [
+    `k${key}`,
+    key === 9
+      ? [{ id: "U1", name: "alice" }, { id: "U2", name: "bob" }]
+      : [{ id: "U1", name: "alice" }],
+  ]));
+  assert.deepEqual(brain.get("key-holders-v2"), { version: 2, groups: expectedGroups });
+  assert.equal(api.posts.length, 13);
+  assert.equal(api.posts[11].text, [
+    "k0 (master key): alice", "k1: alice", "k2: alice", "k3: alice", "k4: alice",
+    "k5: alice", "k6: alice", "k7: alice", "k8: alice", "k9: alice, bob",
+  ].join("\n"));
+  assert.equal(api.posts[12].text, "k9: alice, bob");
+});
+
+test("invalid numbered keys receive an error instead of entering kx", async () => {
+  const { brain, bot, events, api } = adapterSetup();
+  require("../scripts/keys")(bot);
+  for (const [index, text] of [
+    "alice has k10", "alice has k71", "who has k71", "i have k71",
+    "i don't have k71", "i gave k71 to bob", "alice has keys of k71",
+  ].entries()) {
+    await events.receive("T1", event({ text: `<@UBOT> ${text}`, ts: `bad-key-${index}` }));
+  }
+  await bot.flush();
+  assert.equal(api.posts.length, 7);
+  assert(api.posts.every(post => /^Invalid key "k(?:10|71)"\./.test(post.text)));
+  assert.equal(brain.get("key-holders-v2"), null);
+});
+
+test("key commands accept trailing punctuation and targeted removal", async () => {
+  const { brain, directory, bot, events, api } = adapterSetup();
+  require("../scripts/keys")(bot);
+  directory.updateUser({ id: "U2", name: "bob" });
+  for (const [index, text] of [
+    "i have k1?  ", "who has k1 ?", "bob has k2. ", "i have kx!",
+    "who has keys!", "bob doesn't have k2?  ", "i gave kx to bob!",
+    "bob does not have kx. ", "i don't have k1.  ",
+  ].entries()) {
+    await events.receive("T1", event({ text: `<@UBOT> ${text}`, ts: `punct-key-${index}` }));
+  }
+  await bot.flush();
+  assert.equal(api.posts[1].text, "k1: alice");
+  assert.equal(api.posts[4].text, "k1: alice\nk2: bob\nkx: alice");
+  assert.match(api.posts[5].text, /bob no longer holds k2/);
+  assert.match(api.posts[7].text, /bob no longer holds kx/);
+  assert.match(api.posts[8].text, /alice no longer holds k1/);
+  assert.deepEqual(brain.get("key-holders-v2"), { version: 2, groups: {
+    k1: [], k2: [], kx: [],
+  } });
+});
+
+test("version 1 unknown groups migrate to kx and existing holders remain available", async () => {
+  const { brain, bot, events, api } = adapterSetup();
+  brain.set("key-holders-v2", { version: 1, groups: {
+    unknown: [{ id: "U1", name: "alice" }],
+    k1: [{ id: "U2", name: "bob" }],
+    k17: [{ id: "U3", name: "legacy-holder" }],
+  } });
+  require("../scripts/keys")(bot);
+  for (const [index, text] of ["who has keys?", "who has kx", "who has k1", "who has k17"].entries()) {
+    await events.receive("T1", event({ text: `<@UBOT> ${text}`, ts: `migrate-key-${index}` }));
+  }
+  await bot.flush();
+  assert.deepEqual(brain.get("key-holders-v2"), { version: 2, groups: {
+    kx: [{ id: "U1", name: "alice" }],
+    k1: [{ id: "U2", name: "bob" }],
+  } });
+  assert.deepEqual(brain.get("key-holders-v2-unsupported-backup"), {
+    version: 1, groups: { k17: [{ id: "U3", name: "legacy-holder" }] },
+  });
+  assert.equal(api.posts[0].text, "k1: bob\nkx: alice");
+  assert.equal(api.posts[1].text, "kx: alice");
+  assert.equal(api.posts[2].text, "k1: bob");
+  assert.match(api.posts[3].text, /Invalid key "k17"/);
+});
+
+test("removing and transferring keys changes only the sender's memberships", async () => {
+  const { brain, directory, bot, events, api } = adapterSetup();
+  require("../scripts/keys")(bot);
+  directory.updateUser({ id: "U2", name: "bob" });
+  for (const [index, text] of [
+    "alice has k1", "bob has k1", "alice has k2", "alice has keys",
+    "i don't have k1", "i gave keys to bob", "who has keys", "who has k2",
+  ].entries()) await events.receive("T1", event({ text: `<@UBOT> ${text}`, ts: `move-${index}` }));
+  await bot.flush();
+  assert.deepEqual(brain.get("key-holders-v2"), { version: 2, groups: {
+    k1: [{ id: "U2", name: "bob" }],
+    k2: [{ id: "U2", name: "bob" }],
+    kx: [{ id: "U2", name: "bob" }],
+  } });
+  assert.equal(api.posts[6].text, "k1: bob\nk2: bob\nkx: bob");
+  assert.equal(api.posts[7].text, "k2: bob");
+});
+
+test("an old owner command stays in kx until manually reassigned to a numbered key", async () => {
+  const { brain, directory, bot, events, api } = adapterSetup();
+  require("../scripts/keys")(bot);
+  directory.updateUser({ id: "U2", name: "bob" });
+  for (const [index, text] of [
+    "i have keys of ravi", "who has unknown keys", "i dont have unknown keys",
+    "alice has k1", "i gave k1 to bob", "who has k1", "who has unknown keys",
+  ].entries()) await events.receive("T1", event({ text: `<@UBOT> ${text}`, ts: `reassign-${index}` }));
+  await bot.flush();
+  assert.equal(api.posts[1].text, "kx: alice");
+  assert.equal(api.posts[5].text, "k1: bob");
+  assert.equal(api.posts[6].text, "kx: no holders recorded");
+  assert.deepEqual(brain.get("key-holders-v2"), { version: 2, groups: {
+    kx: [], k1: [{ id: "U2", name: "bob" }],
+  } });
+});
+
+test("old owner records stay recoverable but never populate numbered keys", async () => {
+  const { brain, bot, events, api } = adapterSetup();
+  const legacy = [
+    { holder: "alice", owner: "lab" },
+    { holder: "alice", owner: "ravi" },
+  ];
+  brain.set("key", structuredClone(legacy));
+  require("../scripts/keys")(bot);
+  await events.receive("T1", event({ text: "<@UBOT> who has keys", ts: "old-1" }));
+  await bot.flush();
+  assert.match(api.posts[0].text, /Nobody informed me about the keys/);
+  assert.deepEqual(brain.get("key"), legacy);
+  assert.equal(brain.get("key-holders-v2"), null);
+
+  await events.receive("T1", event({ text: "<@UBOT> alice has k1", ts: "old-2" }));
+  await bot.flush();
+  assert.deepEqual(brain.get("key-holders-v2"), {
+    version: 2, groups: { k1: [{ id: "U1", name: "alice" }] },
+  });
+  assert.deepEqual(brain.get("key"), legacy);
+
+  await events.receive("T1", event({ text: "<@UBOT> i dont have keys", ts: "old-3" }));
+  await bot.flush();
+  assert.deepEqual(brain.get("key"), []);
+  assert.deepEqual(brain.get("key-legacy-backup"), legacy);
+  assert.deepEqual(brain.get("key-holders-v2").groups.k1, []);
+  await events.receive("T1", event({ text: "<@UBOT> who has keys", ts: "old-4" }));
+  await bot.flush();
+  assert.equal(api.posts.at(-1).text, "k1: no holders recorded");
 });
 
 test("scores require @mentions for changes and accept Slack names or unique real/display names for queries", async t => {
