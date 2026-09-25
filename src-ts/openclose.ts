@@ -29,11 +29,19 @@ export = (robot: Robot, now: () => Date = () => new Date()): void => {
       istTime.formatToParts(now()).map(({ type, value }) => [type, value]),
     );
     const date = `${parts.year}-${parts.month}-${parts.day}`;
-    if (parts.hour !== "02" || parts.minute !== "00" || date === lastAutoCloseDate) return;
+    if (
+      parts.hour !== "02" ||
+      parts.minute !== "00" ||
+      date === lastAutoCloseDate
+    )
+      return;
 
     lastAutoCloseDate = date;
     status = "closed";
-    robot.send({ room: "general" }, "Lab is now closed (auto-updated at 2:00 AM IST).");
+    robot.send(
+      { room: "bottesting" },
+      "Lab is now closed (auto-updated at 2:00 AM IST).",
+    );
   });
 
   robot.hear(/lab is (open|closed|close)/i, (msg) => {

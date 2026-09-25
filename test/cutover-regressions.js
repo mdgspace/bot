@@ -91,7 +91,7 @@ test("all production scripts register offline and retain help commands", async t
   assert(sent.some(item => /^https?:\/\//.test(item.messages[0])));
 });
 
-test("lab status auto-closes once daily at 2 AM Kolkata time in #general", async t => {
+test("lab status auto-closes once daily at 2 AM Kolkata time in #bottesting", async t => {
   let tick;
   t.mock.method(cron, "schedule", (expression, callback) => {
     assert.equal(expression, "* * * * *");
@@ -112,7 +112,7 @@ test("lab status auto-closes once daily at 2 AM Kolkata time in #general", async
   time = new Date("2026-09-23T20:30:00.000Z"); // 2:00 AM IST
   tick();
   await bot.flush();
-  assert.equal(sent.at(-1).envelope.room, "general");
+  assert.equal(sent.at(-1).envelope.room, "bottesting");
   assert.equal(sent.at(-1).messages[0], "Lab is now closed (auto-updated at 2:00 AM IST).");
   const count = sent.length;
   time = new Date("2026-09-23T20:30:30.000Z");
@@ -130,7 +130,7 @@ test("lab status auto-closes once daily at 2 AM Kolkata time in #general", async
   await bot.flush();
   await command(bot, "bot is lab open");
   assert.equal(sent.at(-1).messages[0], "lab is closed");
-  assert.equal(sent.filter(item => item.envelope.room === "general").length, 2);
+  assert.equal(sent.filter(item => item.envelope.room === "bottesting").length, 2);
 });
 
 test("persisted environment is restored without logging secret values", t => {
