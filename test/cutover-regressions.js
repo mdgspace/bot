@@ -91,6 +91,48 @@ test("all production scripts register offline and retain help commands", async t
   assert(sent.some(item => /^https?:\/\//.test(item.messages[0])));
 });
 
+test("lab status auto-closes once daily at 2 AM Kolkata time in #bottesting", async t => {
+  let tick;
+  t.mock.method(cron, "schedule", (expression, callback) => {
+    assert.equal(expression, "* * * * *");
+    tick = callback;
+    return { stop() {} };
+  });
+  const { bot, sent } = botFixture();
+  let time = new Date("2026-09-23T20:29:00.000Z"); // 1:59 AM IST
+  require("../scripts/openclose")(bot, () => time);
+
+  await command(bot, "bot lab is open");
+  tick();
+  await bot.flush();
+  assert.equal(sent.length, 1);
+  await command(bot, "bot is lab open");
+  assert.equal(sent.at(-1).messages[0], "lab is open");
+
+  time = new Date("2026-09-23T20:30:00.000Z"); // 2:00 AM IST
+  tick();
+  await bot.flush();
+  assert.equal(sent.at(-1).envelope.room, "bottesting");
+  assert.equal(sent.at(-1).messages[0], "Lab is now closed (auto-updated at 2:00 AM IST).");
+  const count = sent.length;
+  time = new Date("2026-09-23T20:30:30.000Z");
+  tick();
+  await bot.flush();
+  assert.equal(sent.length, count);
+  await command(bot, "bot is lab open");
+  assert.equal(sent.at(-1).messages[0], "lab is closed");
+
+  await command(bot, "bot lab is open");
+  await command(bot, "bot is lab open");
+  assert.equal(sent.at(-1).messages[0], "lab is open");
+  time = new Date("2026-09-24T20:30:00.000Z");
+  tick();
+  await bot.flush();
+  await command(bot, "bot is lab open");
+  assert.equal(sent.at(-1).messages[0], "lab is closed");
+  assert.equal(sent.filter(item => item.envelope.room === "bottesting").length, 2);
+});
+
 test("persisted environment is restored without logging secret values", t => {
   preserveEnvironment(t, ["CUTOVER_BOOT_VALUE", "SLACK_BOT_TOKEN"]);
   const brain = new Brain();
