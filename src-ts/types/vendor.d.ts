@@ -14,11 +14,6 @@ declare module "moment" {
   export = moment;
 }
 
-declare module "node-cron" {
-  /** Schedules `fn` per the cron expression; returns the scheduled task. */
-  export function schedule(expression: string, fn: () => void): unknown;
-}
-
 declare module "natural/lib/natural/tokenizers/regexp_tokenizer" {
   export class WordTokenizer {
     tokenize(text: string): string[];

@@ -116,7 +116,7 @@ A crash between a script's external side effect and inbox completion can repeat 
 
 As in the old middleware, incoming DM/private-channel commands are disabled. Thread replies retain the old adapter's thread context. Text on `file_share` messages now reaches listeners; edited/deleted/hidden messages remain excluded. Outbound text is split into 4,000-character chunks, with ordering per destination; send failures are logged. Legacy external command endpoints are unchanged: the HTTP helper follows redirects and fails after 15 seconds, but unavailable third-party services still require an operator-selected replacement.
 
-`natural` and `node-cron` are pinned to the baseline installed versions to preserve tokenizer imports and named-day schedules. The obsolete quote HTML parsers have been replaced without changing the quote command format.
+`natural` remains pinned to the baseline installed version to preserve tokenizer imports. `node-cron` uses v4, which supports the existing named-weekday schedules. The obsolete quote HTML parsers have been replaced without changing the quote command format.
 
 ## Persistent environment commands
 
