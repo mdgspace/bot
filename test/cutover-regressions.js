@@ -105,7 +105,8 @@ test("bot help lists the numbered and kx key commands", async () => {
   await command(bot, "bot help kx");
   for (const command of [
     "bot i have kx", "bot <name> has kx",
-    "bot <name> doesn't have kx", "bot i don't have kx", "bot i gave kx to <name>",
+    "bot <name> doesn't have kx", 'also accepts "keys" or "unknown keys"',
+    "bot i don't have kx", "bot i gave kx to <name>",
   ]) assert(sent.at(-1).messages[0].includes(command), command);
 });
 
