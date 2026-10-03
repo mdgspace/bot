@@ -259,7 +259,7 @@ test("removing keys does not skip adjacent entries", () => {
   });
 
   handler({
-    message: { user: { name: "alice" } },
+    message: { user: { name: "alice" }, finish() {} },
     send() {},
   });
   assert.strictEqual(entries.length, 0);

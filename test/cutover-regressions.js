@@ -91,6 +91,25 @@ test("all production scripts register offline and retain help commands", async t
   assert(sent.some(item => /^https?:\/\//.test(item.messages[0])));
 });
 
+test("bot help lists the numbered and kx key commands", async () => {
+  const { bot, sent } = botFixture();
+  bot.addHelp(fs.readFileSync(require.resolve("../scripts/keys"), "utf8"));
+  require("../scripts/help")(bot);
+
+  await command(bot, "bot help k1");
+  for (const command of [
+    "bot who has k1", "bot i have k1", "bot <name> has k1",
+    "bot i don't have k1", "bot i gave k1 to <name>",
+  ]) assert(sent.at(-1).messages[0].includes(command), command);
+
+  await command(bot, "bot help kx");
+  for (const command of [
+    "bot i have kx", "bot <name> has kx",
+    "bot <name> doesn't have kx", 'also accepts "keys" or "unknown keys"',
+    "bot i don't have kx", "bot i gave kx to <name>",
+  ]) assert(sent.at(-1).messages[0].includes(command), command);
+});
+
 test("lab status auto-closes once daily at 2 AM Kolkata time in #bottesting", async t => {
   let tick;
   t.mock.method(cron, "schedule", (expression, callback) => {
