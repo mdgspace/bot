@@ -10,8 +10,8 @@
 //   bot i have kx - add yourself to the unnumbered-key group
 //   bot <name> has kx - add someone to the unnumbered-key group
 //   bot <name> has keys - add someone to the unnumbered-key group
-//   bot i don't have k1 - remove yourself from one numbered key
-//   bot <name> doesn't have k1 - remove another holder from a numbered key
+//   bot i don't have k1 - remove yourself from one numbered key (also "i no longer have k1", "i never had k1")
+//   bot <name> doesn't have k1 - remove another holder from a numbered key (also "doesn't has", "don't have", "no longer has", "never has", "hasn't got")
 //   bot <name> doesn't have kx - remove another holder from the unnumbered-key group (also accepts "keys" or "unknown keys")
 //   bot i don't have kx - remove yourself from the unnumbered-key group
 //   bot i don't have keys - remove yourself from every key
@@ -52,6 +52,17 @@ const LEGACY_UNKNOWN = "unknown";
 const EMPTY_MESSAGE =
   "Ah! Nobody informed me about the keys. Don't hold me responsible for this :expressionless:";
 const NUMBERED_KEY = /^k[0-9]$/i;
+// Every negated form of "has", including curly apostrophes typed from Slack
+// clients. Any of these before a holding verb means "remove", never "add".
+const APOSTROPHE = "['\\u2019\\u00b4]?";
+const NEGATION = String.raw`(?:do(?:es)?n${APOSTROPHE}t|do(?:es)?\s+not|didn${APOSTROPHE}t|did\s+not|ha(?:s|ve)n${APOSTROPHE}t|ha(?:s|ve)\s+not|isn${APOSTROPHE}t|is\s+not|no\s+longer|never|not)`;
+const HOLDING_VERB = String.raw`(?:has|have|had|holds?|holding|got)`;
+const NEGATED_SUBJECT = new RegExp(
+  String.raw`(?:^|\s)${NEGATION}(?:\s|$)`,
+  "i",
+);
+const TRAILING = String.raw`(?:\s+any\s?more)?\s*[?.!]*\s*$`;
+const keyCommand = (source: string): RegExp => new RegExp(source, "i");
 const LEGACY_NUMBERED_KEY = /^k(?:0|[1-9]\d*)$/i;
 const NUMBERED_KEY_LIKE = /^k\d+$/i;
 
@@ -406,6 +417,12 @@ export = (robot: Robot): void => {
   };
 
   const assign = (msg: Response, input: string, group: string): void => {
+    if (NEGATED_SUBJECT.test(cleanCommandValue(input))) {
+      msg.send(
+        `That sounds like a removal, so I did not assign ${groupLabel(group)}. To remove a holder, say "${robot.name} <name> doesn't have ${group}".`,
+      );
+      return;
+    }
     const user = resolveHolder(robot, msg, input);
     if (!user) return;
     const state = registry(robot);
@@ -458,7 +475,9 @@ export = (robot: Robot): void => {
   };
 
   robot.respond(
-    /^(?!who(?: all)?\s)(.+?)\s+(?:doesn'?t|does not)\s+have\s+(.+?)\s*[?.!]*\s*$/i,
+    keyCommand(
+      String.raw`^(?!(?:who(?: all)?|i)\s)(\S.*?)\s+${NEGATION}\s+${HOLDING_VERB}\s+(.+?)${TRAILING}`,
+    ),
     (msg) => {
       msg.message.finish();
       const group = targetedRemovalGroup(msg.match[2]);
@@ -527,7 +546,7 @@ export = (robot: Robot): void => {
   );
 
   robot.respond(
-    /who(?: all)? (?:has|have) (.+)'s keys?\s*[?.!]*\s*$/i,
+    /who(?: all)? (?:has|have) (.+)['\u2019]s keys?\s*[?.!]*\s*$/i,
     (msg) => {
       msg.send(
         `Keys are identified as k0 through k9, with kx for an unknown number. Use "bot who has kN" instead of ${msg.match[1]}'s name.`,
@@ -536,22 +555,31 @@ export = (robot: Robot): void => {
   );
 
   robot.respond(
-    /i (?:don'?t|do not) (?:has|have) (?:the )?(k(?:[0-9]|x))(?: keys?)?\s*[?.!]*\s*$/i,
+    keyCommand(
+      String.raw`i\s+${NEGATION}\s+${HOLDING_VERB}\s+(?:the\s+)?(k(?:[0-9]|x))(?:\s+keys?)?${TRAILING}`,
+    ),
     (msg) => {
+      msg.message.finish();
       remove(msg, msg.match[1].toLowerCase());
     },
   );
 
   robot.respond(
-    /i (?:don'?t|do not) (?:has|have) unknown keys?\s*[?.!]*\s*$/i,
+    keyCommand(
+      String.raw`i\s+${NEGATION}\s+${HOLDING_VERB}\s+unknown\s+keys?${TRAILING}`,
+    ),
     (msg) => {
+      msg.message.finish();
       remove(msg, UNKNOWN);
     },
   );
 
   robot.respond(
-    /i (?:don'?t|do not) (?:has|have) (?:(?:the|a) )?keys?\s*[?.!]*\s*$/i,
+    keyCommand(
+      String.raw`i\s+${NEGATION}\s+${HOLDING_VERB}\s+(?:(?:the|a)\s+)?keys?${TRAILING}`,
+    ),
     (msg) => {
+      msg.message.finish();
       const state = registry(robot);
       const removed = Object.keys(state.groups).filter((group) =>
         removeHolder(state, group, msg.message.user),
@@ -588,14 +616,18 @@ export = (robot: Robot): void => {
   );
 
   robot.respond(
-    /^(?!(?:who(?: all)?|i\s+(?:don'?t|do not))\s)(\S.*?)\s+(?:has|have)\s+(?:the\s+)?(k(?:[0-9]|x))(?:\s+keys?)?\s*[?.!]*\s*$/i,
+    keyCommand(
+      String.raw`^(?!(?:who(?: all)?|i\s+${NEGATION})\s)(\S.*?)\s+(?:has|have)\s+(?:the\s+)?(k(?:[0-9]|x))(?:\s+keys?)?\s*[?.!]*\s*$`,
+    ),
     (msg) => {
       assign(msg, msg.match[1], msg.match[2].toLowerCase());
     },
   );
 
   robot.respond(
-    /^(?!(?:who(?: all)?|i\s+(?:don'?t|do not))\s)(\S.*?)\s+(?:has|have)\s+unknown keys?\s*[?.!]*\s*$/i,
+    keyCommand(
+      String.raw`^(?!(?:who(?: all)?|i\s+${NEGATION})\s)(\S.*?)\s+(?:has|have)\s+unknown keys?\s*[?.!]*\s*$`,
+    ),
     (msg) => {
       assign(msg, msg.match[1], UNKNOWN);
     },
@@ -610,7 +642,9 @@ export = (robot: Robot): void => {
     },
   );
   robot.respond(
-    /i (?:don'?t|do not) (?:has|have) (?:the )?(k\d+)(?: keys?)?\s*[?.!]*\s*$/i,
+    keyCommand(
+      String.raw`i\s+${NEGATION}\s+${HOLDING_VERB}\s+(?:the\s+)?(k\d+)(?:\s+keys?)?${TRAILING}`,
+    ),
     (msg) => {
       reportInvalidNumberedKey(msg, msg.match[1]);
     },
@@ -622,14 +656,18 @@ export = (robot: Robot): void => {
     },
   );
   robot.respond(
-    /^(?!(?:who(?: all)?|i\s+(?:don'?t|do not))\s)(\S.*?)\s+(?:has|have)\s+(?:the\s+)?(k\d+)(?:\s+keys?)?\s*[?.!]*\s*$/i,
+    keyCommand(
+      String.raw`^(?!(?:who(?: all)?|i\s+${NEGATION})\s)(\S.*?)\s+(?:has|have)\s+(?:the\s+)?(k\d+)(?:\s+keys?)?\s*[?.!]*\s*$`,
+    ),
     (msg) => {
       reportInvalidNumberedKey(msg, msg.match[2]);
     },
   );
 
   robot.respond(
-    /^(?!(?:who(?: all)?|i\s+(?:don'?t|do not))\s)(\S.*?)\s+(?:has|have)\s+(?:(?:the|a)\s+)?keys?(?:\s+of\s+(.+?))?\s*[?.!]*\s*$/i,
+    keyCommand(
+      String.raw`^(?!(?:who(?: all)?|i\s+${NEGATION})\s)(\S.*?)\s+(?:has|have)\s+(?:(?:the|a)\s+)?keys?(?:\s+of\s+(.+?))?\s*[?.!]*\s*$`,
+    ),
     (msg) => {
       const hint = cleanCommandValue(msg.match[2] ?? "");
       if (hint && reportInvalidNumberedKey(msg, hint)) return;

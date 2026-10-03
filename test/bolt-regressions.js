@@ -591,20 +591,33 @@ test("targeted negative key commands never fall through to assignment", async ()
     text: `<@UBOT> ${target} ${text}`,
     ts,
   }));
-  for (const [index, [target, text]] of [
-    ["<@U2|bob>", "doesn't have keys"],
-    ["bob", "doesn't have the k5"],
-    ["@bob", "does not have unknown keys"],
-  ].entries()) {
+  const negatedForms = [
+    ["<@U2|bob>", "doesn't have keys", "kx"],
+    ["bob", "doesn't have the k5", "k5"],
+    ["@bob", "does not have unknown keys", "kx"],
+    // Forms reported on the PR that used to assign the key instead.
+    ["<@U2|bob>", "doesn't has k5", "k5"],
+    ["<@U2|bob>", "don't have k5", "k5"],
+    ["<@U2|bob>", "no longer has k5", "k5"],
+    ["<@U2|bob>", "never has k5", "k5"],
+    ["<@U2|bob>", "doesn\u2019t have k5", "k5"],
+    ["<@U2|bob>", "hasn't got k5", "k5"],
+    ["<@U2|bob>", "is not holding k5 anymore", "k5"],
+    ["bob", "didn't have k5.", "k5"],
+  ];
+  for (const [index, [target, text]] of negatedForms.entries()) {
     await sendForBob(target, text, `target-remove-missing-${index}`);
   }
+  await sendForBob("<@U2|bob>", "is not the one who has k5", "target-guard");
   await bot.flush();
 
   assert.equal(brain.get("key-holders-v2"), null);
-  assert.equal(api.posts.length, 3);
-  assert.match(api.posts[0].text, /no record of bob holding kx/);
-  assert.match(api.posts[1].text, /no record of bob holding k5/);
-  assert.match(api.posts[2].text, /no record of bob holding kx/);
+  assert.equal(api.posts.length, negatedForms.length + 1, JSON.stringify(api.posts.map(post => post.text)));
+  for (const [index, [, text, group]] of negatedForms.entries()) {
+    assert.match(api.posts[index].text, new RegExp(`no record of bob holding ${group}`), text);
+  }
+  assert.match(api.posts.at(-1).text, /did not assign k5/);
+  api.posts.length = 0;
 
   for (const [index, text] of [
     "has k5",
@@ -613,14 +626,43 @@ test("targeted negative key commands never fall through to assignment", async ()
     "does not have unknown keys",
     "has keys",
     "doesn't have keys",
+    "has k6",
+    "no longer has k6",
+    "has k7",
+    "doesn\u2019t has k7",
   ].entries()) {
     await sendForBob("<@U2|bob>", text, `target-remove-held-${index}`);
   }
   await bot.flush();
 
-  assert.match(api.posts[5].text, /bob no longer holds k5/);
-  assert.match(api.posts[6].text, /bob no longer holds kx/);
-  assert.match(api.posts[8].text, /bob no longer holds kx/);
+  assert.equal(api.posts.length, 10, JSON.stringify(api.posts.map(post => post.text)));
+  assert.match(api.posts[2].text, /bob no longer holds k5/);
+  assert.match(api.posts[3].text, /bob no longer holds kx/);
+  assert.match(api.posts[5].text, /bob no longer holds kx/);
+  assert.match(api.posts[7].text, /bob no longer holds k6/);
+  assert.match(api.posts[9].text, /bob no longer holds k7/);
+  assert.deepEqual(brain.get("key-holders-v2"), { version: 2, groups: {} });
+});
+
+test("self negative key commands accept every negation without assigning", async () => {
+  const { brain, directory, bot, events, api } = adapterSetup();
+  require("../scripts/keys")(bot);
+  directory.updateUser({ id: "U2", name: "bob" });
+  for (const [index, text] of [
+    "i have k1", "i have k2", "i have k3", "i have kx",
+    "i no longer have k1", "i don\u2019t have k2", "i never had k3",
+    "i do not have kx", "who has keys", "i don't have keys",
+  ].entries()) {
+    await events.receive("T1", event({ text: `<@UBOT> ${text}`, ts: `self-negation-${index}` }));
+  }
+  await bot.flush();
+  assert.equal(api.posts.length, 10, JSON.stringify(api.posts.map(post => post.text)));
+  assert.match(api.posts[4].text, /alice no longer holds k1/);
+  assert.match(api.posts[5].text, /alice no longer holds k2/);
+  assert.match(api.posts[6].text, /alice no longer holds k3/);
+  assert.match(api.posts[7].text, /alice no longer holds kx/);
+  assert.match(api.posts[8].text, /Nobody informed me about the keys/);
+  assert.equal(api.posts[9].text, "Yes, I know buddy");
   assert.deepEqual(brain.get("key-holders-v2"), { version: 2, groups: {} });
 });
 
