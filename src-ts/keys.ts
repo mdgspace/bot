@@ -15,6 +15,7 @@
 //   bot <name> doesn't have kx - remove another holder from the unnumbered-key group (also accepts "keys" or "unknown keys")
 //   bot i don't have kx - remove yourself from the unnumbered-key group
 //   bot i don't have keys - remove yourself from every key
+//   bot drop k1 - forget every recorded holder of a key (also accepts "nobody has k1")
 //   bot i gave k1 to <name> - transfer one numbered key
 //   bot i gave kx to <name> - transfer the unnumbered-key group
 //   bot i gave keys to <name> - transfer all your recorded keys
@@ -262,7 +263,16 @@ function describeGroup(
   const names = (state.groups[group] ?? []).map((holder) =>
     holderName(robot, holder),
   );
+  if (!names.length) return `Nobody is recorded as holding ${groupLabel(group)}.`;
   return `${groupLabel(group)}: ${names.join(", ")}`;
+}
+
+// Keys without holders are dropped from the registry so they never linger
+// as empty "kN:" lines in listings.
+function pruneEmptyGroups(state: KeyRegistry): void {
+  for (const [group, holders] of Object.entries(state.groups)) {
+    if (!holders.length) delete state.groups[group];
+  }
 }
 
 interface HolderAssignment {
@@ -390,8 +400,10 @@ function resolveHolder(
 }
 
 export = (robot: Robot): void => {
-  const save = (state: KeyRegistry): void =>
+  const save = (state: KeyRegistry): void => {
+    pruneEmptyGroups(state);
     robot.brain.set(REGISTRY_KEY, state);
+  };
 
   const assign = (msg: Response, input: string, group: string): void => {
     const user = resolveHolder(robot, msg, input);
@@ -463,6 +475,24 @@ export = (robot: Robot): void => {
   );
 
   robot.respond(
+    /(?:drop|clear|forget|nobody (?:has|have)|no one (?:has|have)) (?:the )?(k\d+|kx)(?: keys?)?\s*[?.!]*\s*$/i,
+    (msg) => {
+      msg.message.finish();
+      const group = msg.match[1].toLowerCase();
+      if (reportInvalidNumberedKey(msg, group)) return;
+      const state = registry(robot);
+      const dropped = state.groups[group]?.length ?? 0;
+      delete state.groups[group];
+      if (dropped) save(state);
+      msg.send(
+        dropped
+          ? `Okay, ${groupLabel(group)} has no recorded holders now.`
+          : `${groupLabel(group)} already has no recorded holders.`,
+      );
+    },
+  );
+
+  robot.respond(
     /who(?: all)? (?:has|have) (?:the )?(k(?:[0-9]|x))(?: keys?)?\s*[?.!]*\s*$/i,
     (msg) => {
       msg.send(
@@ -485,7 +515,7 @@ export = (robot: Robot): void => {
     (msg) => {
       const state = registry(robot);
       const groups = Object.keys(state.groups)
-        .filter((group) => group !== UNKNOWN)
+        .filter((group) => group !== UNKNOWN && state.groups[group].length)
         .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
       if (state.groups[UNKNOWN]?.length) groups.push(UNKNOWN);
       msg.send(
