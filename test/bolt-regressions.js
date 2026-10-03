@@ -652,17 +652,20 @@ test("self negative key commands accept every negation without assigning", async
     "i have k1", "i have k2", "i have k3", "i have kx",
     "i no longer have k1", "i don\u2019t have k2", "i never had k3",
     "i do not have kx", "who has keys", "i don't have keys",
+    "i have keys of ravi", "i don't have keys of ravi", "who has keys",
   ].entries()) {
     await events.receive("T1", event({ text: `<@UBOT> ${text}`, ts: `self-negation-${index}` }));
   }
   await bot.flush();
-  assert.equal(api.posts.length, 10, JSON.stringify(api.posts.map(post => post.text)));
+  assert.equal(api.posts.length, 13, JSON.stringify(api.posts.map(post => post.text)));
   assert.match(api.posts[4].text, /alice no longer holds k1/);
   assert.match(api.posts[5].text, /alice no longer holds k2/);
   assert.match(api.posts[6].text, /alice no longer holds k3/);
   assert.match(api.posts[7].text, /alice no longer holds kx/);
   assert.match(api.posts[8].text, /Nobody informed me about the keys/);
   assert.equal(api.posts[9].text, "Yes, I know buddy");
+  assert.match(api.posts[11].text, /alice no longer holds any recorded keys/);
+  assert.match(api.posts[12].text, /Nobody informed me about the keys/);
   assert.deepEqual(brain.get("key-holders-v2"), { version: 2, groups: {} });
 });
 

@@ -576,7 +576,7 @@ export = (robot: Robot): void => {
 
   robot.respond(
     keyCommand(
-      String.raw`i\s+${NEGATION}\s+${HOLDING_VERB}\s+(?:(?:the|a)\s+)?keys?${TRAILING}`,
+      String.raw`i\s+${NEGATION}\s+${HOLDING_VERB}\s+(?:(?:the|a)\s+)?keys?(?:\s+of\s+.+?)?${TRAILING}`,
     ),
     (msg) => {
       msg.message.finish();
