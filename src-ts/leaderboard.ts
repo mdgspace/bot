@@ -5,7 +5,7 @@
 //   @name++ or @name-- : Adds/subtracts 1 point to/from a mentioned user's score
 //   hubot score name or hubot score @name : Shows a user's score by exact or unique partial name
 
-import type { Robot, Response } from "./runtime/types";
+import type { Robot, Response, User } from "./runtime/types";
 import { scoreNameForQuery } from "./runtime/score-user";
 
 import { info } from "./util";
@@ -35,6 +35,13 @@ function parse(json: string): string[][] {
   // info.ts/birthday.ts/batch-score.ts/httpd.ts — always returns the array,
   // never `false`. Preserved exactly.
   return result;
+}
+
+function memberYear(members: string[][], user: User): number | undefined {
+  const member = members.find((row) => row[10].toLowerCase() === user.id.toLowerCase())
+    ?? members.find((row) => row[10].toLowerCase() === user.name.toLowerCase());
+  const year = member?.[4].match(/^([1-9]\d*)(?:st|nd|rd|th)?(?:\s+year)?$/i);
+  return year ? Number(year[1]) : undefined;
 }
 
 export = (robot: Robot): void => {
@@ -178,40 +185,38 @@ export = (robot: Robot): void => {
     return { New: newscore, Name: name, Response: response };
   };
 
-  let cachedMembers: { ids: string[]; fetchedAt: number } | undefined;
-  let pendingMembers: Promise<string[] | null> | undefined;
-  const getSlackIds = (): Promise<string[] | null> => {
+  let cachedMembers: { members: string[][]; fetchedAt: number } | undefined;
+  let pendingMembers: Promise<string[][] | null> | undefined;
+  const getMembers = (): Promise<string[][] | null> => {
     const now = Date.now();
     if (cachedMembers && now - cachedMembers.fetchedAt < 60_000) {
-      return Promise.resolve(cachedMembers.ids);
+      return Promise.resolve(cachedMembers.members);
     }
     if (pendingMembers) return pendingMembers;
-    pendingMembers = new Promise<string[] | null>((resolve) => {
+    pendingMembers = new Promise<string[][] | null>((resolve) => {
       info((err, body) => {
         if (err || body == null) {
-          robot.logger.warning(`leaderboard: could not fetch slack ids: ${err}`);
+          robot.logger.warning(`leaderboard: could not fetch members: ${err}`);
           resolve(null);
           return;
         }
-        const ids = parse(body)
-          .filter((user) => user.length >= 13 && user[10])
-          .map((user) => user[10]);
-        if (ids.length === 0) {
+        const members = parse(body).filter((user) => user.length >= 13 && user[10]);
+        if (members.length === 0) {
           robot.logger.warning("leaderboard: member spreadsheet contained no Slack users");
           resolve(null);
           return;
         }
-        resolve(ids);
+        resolve(members);
       });
-    }).then((ids) => {
-      if (ids) {
-        cachedMembers = { ids, fetchedAt: Date.now() };
-        return ids;
+    }).then((members) => {
+      if (members) {
+        cachedMembers = { members, fetchedAt: Date.now() };
+        return members;
       }
       // A brief sheet outage should not interrupt scores immediately after a
       // successful read, but stale membership must not be trusted forever.
       return cachedMembers && Date.now() - cachedMembers.fetchedAt < 300_000
-        ? cachedMembers.ids : null;
+        ? cachedMembers.members : null;
     }).finally(() => { pendingMembers = undefined; });
     return pendingMembers;
   };
@@ -226,11 +231,12 @@ export = (robot: Robot): void => {
 
     const ScoreField = scorefield();
     const SkippedList = skippedlist();
-    const slackIds = await getSlackIds();
-    if (!slackIds) {
+    const members = await getMembers();
+    if (!members) {
       msg.send("Could not update scores because the member list is unavailable.");
       return;
     }
+    const senderYear = memberYear(members, msg.message.user);
     const replies: string[] = [];
     for (const mention of mentions) {
       const id = mention[1];
@@ -247,12 +253,20 @@ export = (robot: Robot): void => {
         continue;
       }
       if (SkippedList.includes(name) || name.length + 2 > 30) continue;
-      const allowed = slackIds.some((member) =>
-        member.toLowerCase() === name || member.toLowerCase() === user.id.toLowerCase(),
-      );
+      if (user.id !== msg.message.user.id) {
+        const targetYear = memberYear(members, user);
+        if (senderYear === undefined || targetYear === undefined) {
+          replies.push(`${name}${operation} [Cannot update scores because your year or the recipient's year is unknown.]`);
+          continue;
+        }
+        if (senderYear <= targetYear) {
+          replies.push(`${name}${operation} [You can only give ++ or -- to juniors.]`);
+          continue;
+        }
+      }
       const result = updateScore(
         `${name}${operation}`, ScoreField, msg.message.user.name,
-        allowed ? [name] : [],
+        [name],
       );
       if (result.Response === "-1") {
         replies.push(`${name}${operation} [Sorry, You can't give ++ or -- to yourself.]`);

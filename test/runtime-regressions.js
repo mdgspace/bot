@@ -455,7 +455,7 @@ test("seen retains restored history across loaded events and ignores PM users", 
 
 test("leaderboard scores only @mentions and keeps positive minus occurrence counts", async t => {
   const util = require("../scripts/util");
-  t.mock.method(util, "info", callback => callback(null, "Bob,x,x,x,1,x,x,x,x,x,bob,x,x"));
+  t.mock.method(util, "info", callback => callback(null, "Alice,x,x,x,2,x,x,x,x,x,alice,x,x\nBob,x,x,x,1,x,x,x,x,x,bob,x,x"));
   const { bot, brain } = botFor();
   brain.userForId("U2", { name: "bob" });
   require("../scripts/leaderboard")(bot);
@@ -477,7 +477,7 @@ test("leaderboard waits for the member sheet before completing a score event", a
   const pending = bot.receive(message("@bob++"));
   await nextTurn();
   assert.equal(brain.get("scorefield").bob, undefined);
-  finishLookup(null, "Bob,x,x,x,1,x,x,x,x,x,U2,x,x");
+  finishLookup(null, "Alice,x,x,x,2,x,x,x,x,x,U1,x,x\nBob,x,x,x,1,x,x,x,x,x,U2,x,x");
   await pending;
   await bot.flush();
   assert.equal(brain.get("scorefield").bob, 1);
@@ -503,7 +503,7 @@ test("leaderboard reuses recent membership and briefly tolerates sheet outages",
   t.mock.method(util, "info", callback => {
     lookups++;
     callback(lookups === 1 ? null : new Error("temporary"),
-      lookups === 1 ? "Bob,x,x,x,1,x,x,x,x,x,U2,x,x" : undefined);
+      lookups === 1 ? "Alice,x,x,x,2,x,x,x,x,x,U1,x,x\nBob,x,x,x,1,x,x,x,x,x,U2,x,x" : undefined);
   });
   const { bot, brain, sent } = botFor();
   brain.userForId("U2", { name: "bob" });
@@ -524,6 +524,52 @@ test("leaderboard reuses recent membership and briefly tolerates sheet outages",
   assert.equal(lookups, 3);
   assert.equal(brain.get("scorefield").bob, 1);
   assert.match(sent.at(-1).messages[0], /member list is unavailable/);
+});
+
+test("leaderboard allows only juniors and rejects missing or invalid member years", async t => {
+  const cases = [
+    { label: "junior", sender: "2", target: "1", allowed: true },
+    { label: "ordinal years and legacy usernames", sender: "3rd Year", target: "2nd", allowed: true, legacy: true },
+    { label: "same year", sender: "2", target: "2" },
+    { label: "senior", sender: "1", target: "2" },
+    { label: "missing sender", sender: null, target: "1", unknown: true },
+    { label: "missing target", sender: "2", target: null, unknown: true },
+    { label: "empty sender year", sender: "", target: "1", unknown: true },
+    { label: "empty target year", sender: "2", target: "", unknown: true },
+    { label: "malformed sender year", sender: "2foo", target: "1", unknown: true },
+    { label: "malformed target year", sender: "2", target: "unknown", unknown: true },
+    { label: "zero year", sender: "2", target: "0", unknown: true },
+  ];
+  for (const entry of cases) {
+    await t.test(entry.label, async t => {
+      const row = (name, year, id) => `${name},x,x,x,${year},x,x,x,x,x,${id},x,x`;
+      const sheet = [
+        entry.sender === null ? null : row("Alice", entry.sender, entry.legacy ? "ALICE" : "U1"),
+        entry.target === null ? null : row("Bob", entry.target, entry.legacy ? "BOB" : "U2"),
+      ].filter(Boolean).join("\n");
+      t.mock.method(require("../scripts/util"), "info", callback => callback(null, sheet));
+      const { bot, brain, sent, errors } = botFor();
+      brain.userForId("U2", { name: "bob" });
+      brain.get("scorefield").bob = 10;
+      const details = { bob: { plus: { alice: 2 }, minus: { alice: 1 } } };
+      brain.set("detailedfield", structuredClone(details));
+      require("../scripts/leaderboard")(bot);
+      await bot.receive(message("@bob++"));
+      assert.equal(brain.get("scorefield").bob, entry.allowed ? 11 : 10);
+      const incoming = message("@bob--");
+      incoming.rawSlackText = "<@U2|Bob Display>--";
+      await bot.receive(incoming);
+      await bot.flush();
+      assert.equal(brain.get("scorefield").bob, 10);
+      assert.deepEqual(brain.get("detailedfield"), entry.allowed
+        ? { bob: { plus: { alice: 3 }, minus: { alice: 2 } } } : details);
+      assert.deepEqual(errors, []);
+      for (const reply of sent) {
+        assert.match(reply.messages[0], entry.allowed ? /You're now at/ : entry.unknown ? /year.*unknown/ : /only give.*juniors/);
+      }
+      assert.equal(sent.length, 2);
+    });
+  }
 });
 
 function fakeHttp(respond) {
