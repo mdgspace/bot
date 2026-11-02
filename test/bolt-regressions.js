@@ -773,7 +773,8 @@ test("scores require @mentions for changes and accept Slack names or unique real
   const relativeYear = today.getFullYear() % 100 + (today.getMonth() >= 6 ? 1 : 0);
   const batch = String(relativeYear - 1).padStart(2, "0");
   const row = ["Fixture Bob", "x", "x", "x", "1", "x", "x", "x", "x", "x", "U2", "x", "x"].join(",");
-  t.mock.method(require("../scripts/util"), "info", callback => callback(null, row));
+  const senderRow = ["Fixture Alice", "x", "x", "x", "2", "x", "x", "x", "x", "x", "U1", "x", "x"].join(",");
+  t.mock.method(require("../scripts/util"), "info", callback => callback(null, `${row}\n${senderRow}`));
   require("../scripts/leaderboard")(bot);
   require("../scripts/detailed-score")(bot);
   require("../scripts/batch-score")(bot);
